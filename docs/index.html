@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>gpstec</title>
+<meta name="description" content="Calibrated GPS total electron content from NovAtel GPStation-6 and other dual-frequency receivers, with an elevation cut-off and publication-quality figures.">
+<meta property="og:title" content="gpstec">
+<meta property="og:description" content="Calibrated GPS TEC from GPStation-6 receivers: elevation cut-off, automatic bias calibration, publication-quality figures.">
+<meta property="og:image" content="https://dipanjanbanerjee.github.io/gpstec/images/daily_vtec.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,500&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a night sky over the ionosphere. The hero is a live drawing of the 350 km shell
+   with satellites and an adjustable elevation cut-off; below it, quiet single-column reading
+   with figure "plates" on paper-white. Dark-first, single deliberate look. */
+:root {
+  --night: #0a1520;        /* sky */
+  --deep: #0f1e2b;         /* raised panels */
+  --line: #1f3344;         /* hairlines */
+  --ink: #e4ecef;          /* text */
+  --muted: #91a6b2;        /* secondary text */
+  --airglow: #86d9c3;      /* oxygen green line, 557.7 nm: the accent */
+  --redline: #e9a79d;      /* oxygen red line, 630.0 nm: used sparingly */
+  --paper: #f6f8f8;        /* figure plates */
+  --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --step--1: 0.84rem; --step-0: 1rem; --step-1: 1.25rem; --step-2: 1.7rem; --step-3: 2.4rem; --step-4: clamp(3rem, 9vw, 5.6rem);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { background: var(--night); }
+body {
+  margin: 0; background: var(--night); color: var(--ink);
+  font: 400 var(--step-0)/1.65 var(--body);
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--airglow); text-underline-offset: 3px; }
+a:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--airglow); outline-offset: 3px; border-radius: 4px; }
+img { max-width: 100%; height: auto; display: block; }
+.wrap {
+  max-width: 68rem; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.label { font: 500 var(--step--1)/1.3 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+h1, h2, h3 { font-family: var(--display); font-weight: 300; text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+h2 { font-size: var(--step-3); line-height: 1.1; }
+h3 { font-size: var(--step-1); font-weight: 500; }
+p { margin: 0; max-width: 65ch; }
+
+/* ── hero ── */
+.hero { position: relative; overflow: hidden; border-bottom: 1px solid var(--line); }
+#sky { position: absolute; inset: 0; width: 100%; height: 100%; }
+.hero-inner { position: relative; display: grid; gap: 1.4rem; padding-block: 4.5rem 3rem; }
+.hero h1 { font-size: var(--step-4); line-height: 0.95; }
+.hero h1 span { color: var(--airglow); }
+.lede { font-size: var(--step-1); color: var(--ink); max-width: 36ch; }
+.actions { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; }
+.install {
+  display: inline-flex; align-items: center; gap: 0.9rem; min-width: 0;
+  background: rgba(10, 21, 32, 0.72); border: 1px solid var(--line); border-radius: 8px;
+  padding: 0.55rem 0.6rem 0.55rem 1rem; font: 400 var(--step-0) var(--mono);
+  backdrop-filter: blur(6px);
+}
+.install code::before { content: "$ "; color: var(--muted); }
+button {
+  font: 500 var(--step--1) var(--mono); letter-spacing: 0.04em; cursor: pointer;
+  color: var(--night); background: var(--airglow); border: 0; border-radius: 6px; padding: 0.45rem 0.8rem;
+}
+.btn-ghost {
+  display: inline-flex; align-items: center; gap: 0.5rem; text-decoration: none;
+  color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 0.7rem 1rem;
+  background: rgba(10, 21, 32, 0.5); font: 500 var(--step--1) var(--mono); letter-spacing: 0.04em;
+}
+.btn-ghost:hover { border-color: var(--airglow); }
+.cut {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 1rem; margin-top: 1.6rem;
+  font: 400 var(--step--1) var(--mono); color: var(--muted);
+  text-shadow: 0 0 6px var(--night), 0 0 12px var(--night);
+}
+.cut label { color: var(--ink); }
+.cut input { accent-color: var(--airglow); width: 11rem; max-width: 100%; }
+.cut output { color: var(--airglow); min-width: 3ch; display: inline-block; font-variant-numeric: tabular-nums; }
+#readout { font-variant-numeric: tabular-nums; }
+
+/* ── constants strip ── */
+.constants { border-bottom: 1px solid var(--line); background: var(--deep); }
+.constants dl {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(12.5rem, 1fr)); gap: 1.2rem 2rem;
+  margin: 0; padding-block: 1.4rem;
+}
+.constants div { min-width: 0; }
+.constants dt { font: 500 0.72rem/1.3 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.constants dd { margin: 0.25rem 0 0; font: 400 var(--step-1)/1.2 var(--mono); color: var(--ink); font-variant-numeric: tabular-nums; }
+.constants dd small { font-size: 0.75em; color: var(--muted); }
+
+/* ── sections ── */
+section.block { padding-block: 5rem; border-bottom: 1px solid var(--line); }
+.head { display: grid; gap: 0.8rem; margin-bottom: 2.6rem; }
+.head p { color: var(--muted); font-size: var(--step-1); line-height: 1.5; max-width: 52ch; }
+.three { display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: 2.4rem; }
+.three > div { display: grid; gap: 0.6rem; align-content: start; min-width: 0; }
+.three p { color: var(--muted); }
+.three .label { color: var(--redline); }
+
+/* pipeline: a real sequence, so it is numbered */
+.pipe { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; counter-reset: s; }
+.pipe li {
+  display: grid; grid-template-columns: 3.2rem minmax(0, 1fr) minmax(0, 1.2fr); gap: 1.4rem; align-items: baseline;
+  padding-block: 1.3rem; border-top: 1px solid var(--line); counter-increment: s;
+}
+.pipe li:last-child { border-bottom: 1px solid var(--line); }
+.pipe li::before { content: counter(s, decimal-leading-zero); font: 500 var(--step--1) var(--mono); color: var(--airglow); }
+.pipe p { color: var(--muted); }
+.pipe code, .formula { font-family: var(--mono); font-size: 0.92em; color: var(--ink); }
+@media (max-width: 760px) {
+  .pipe li { grid-template-columns: 2.4rem minmax(0, 1fr); }
+  .pipe li p { grid-column: 2; }
+}
+
+/* figure plates */
+.plates { display: grid; gap: 3rem; }
+figure { margin: 0; display: grid; gap: 0.9rem; }
+.plate { background: var(--paper); border-radius: 6px; padding: clamp(0.5rem, 2vw, 1.2rem); }
+figcaption { display: grid; gap: 0.25rem; max-width: 70ch; }
+figcaption b { font-weight: 500; }
+figcaption span { color: var(--muted); }
+.pair { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 2rem; align-items: start; }
+@media (max-width: 860px) { .pair { grid-template-columns: minmax(0, 1fr); } }
+
+/* code */
+.code {
+  position: relative; background: var(--deep); border: 1px solid var(--line); border-radius: 8px;
+  overflow-x: auto; min-width: 0;
+}
+.code pre { margin: 0; padding: 1.2rem 1.3rem; font: 400 0.92rem/1.75 var(--mono); color: var(--ink); }
+.code .c { color: var(--muted); }
+.code button { position: absolute; top: 0.7rem; right: 0.7rem; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: 2rem; }
+.cols > div { display: grid; gap: 0.9rem; align-content: start; min-width: 0; }
+.cols p { color: var(--muted); }
+
+.checks { display: grid; gap: 1.6rem; margin: 0; padding: 0; list-style: none; }
+.checks li { display: grid; grid-template-columns: 1.4rem minmax(0, 1fr); gap: 0.9rem; }
+.checks li::before { content: ""; width: 0.6rem; height: 0.6rem; margin-top: 0.55rem; border-radius: 50%; background: var(--airglow); box-shadow: 0 0 12px var(--airglow); }
+.checks p { color: var(--muted); }
+
+.cite {
+  font: 400 0.95rem/1.7 var(--mono); color: var(--ink); background: var(--deep);
+  border-left: 2px solid var(--airglow); padding: 1rem 1.2rem; max-width: 70ch; overflow-wrap: anywhere;
+}
+footer { padding-block: 2.6rem 3.4rem; color: var(--muted); font-size: var(--step--1); }
+footer .wrap { display: flex; flex-wrap: wrap; gap: 1rem 2rem; justify-content: space-between; }
+footer a { color: var(--muted); }
+.toast { color: var(--airglow); font: 400 var(--step--1) var(--mono); min-height: 1.2em; }
+
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <canvas id="sky" aria-hidden="true"></canvas>
+  <div class="wrap hero-inner">
+    <p class="label">GPS ionosphere · GPStation-6 · RINEX</p>
+    <h1>gps<span>tec</span></h1>
+    <p class="lede">Calibrated total electron content from your GPS receiver, with the elevation cut-off you choose and figures ready for the paper.</p>
+    <div class="actions">
+      <div class="install"><code id="pipcmd">pip install gpstec</code><button type="button" id="copy-pip">Copy</button></div>
+      <a class="btn-ghost" href="https://github.com/dipanjanbanerjee/gpstec">Source on GitHub →</a>
+    </div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <div class="cut">
+      <label for="elev">Elevation cut-off</label>
+      <input id="elev" type="range" min="10" max="80" step="5" value="50">
+      <output id="elev-out" for="elev">50°</output>
+      <span id="readout">satellites used: –</span>
+    </div>
+  </div>
+</header>
+
+<div class="constants">
+  <div class="wrap">
+    <dl>
+      <div><dt>L1 / L2</dt><dd>1575.42 <small>/</small> 1227.60 <small>MHz</small></dd></div>
+      <div><dt>Thin shell</dt><dd>350 <small>km</small></dd></div>
+      <div><dt>1 TECU</dt><dd>10<sup>16</sup> <small>e⁻/m²</small></dd></div>
+      <div><dt>Code to TEC</dt><dd>9.52 <small>TECU/m</small></dd></div>
+      <div><dt>Default cut-off</dt><dd>50<small>°</small></dd></div>
+    </dl>
+  </div>
+</div>
+
+<main>
+  <section class="block" id="why">
+    <div class="wrap">
+      <div class="head">
+        <p class="label">Why it exists</p>
+        <h2>The usual GPStation-6 chain hides three problems.</h2>
+        <p>Receiver file, RTKLIB, RINEX, a closed calibration program, then a .Cmn file you have to trust. gpstec does the same job in the open, and checks itself.</p>
+      </div>
+      <div class="three">
+        <div>
+          <p class="label">Wrong position</p>
+          <h3>The RINEX header can put your station inside the Earth.</h3>
+          <p>RTKCONV 2.4.2 writes latitude, longitude and height into the field meant for Earth-centred X, Y, Z. Every elevation and pierce point computed from it is wrong. gpstec takes the position from your configuration, always.</p>
+        </div>
+        <div>
+          <p class="label">No cut-off</p>
+          <h3>Low rays bend the result near the anomaly crest.</h3>
+          <p>The thin-shell mapping is least reliable for low satellites. Choose any elevation cut-off; 50° is the default, and lower data never reaches the products.</p>
+        </div>
+        <div>
+          <p class="label">No checks</p>
+          <h3>A black box gives you numbers, not confidence.</h3>
+          <p>Every day gets a calibration report: the CODE global map at night, an uncertainty band, and a test that each day joins the next one at midnight.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="method">
+    <div class="wrap">
+      <div class="head">
+        <p class="label">Method</p>
+        <h2>From receiver file to vertical TEC.</h2>
+        <p>One command runs all six steps. Each day is calibrated from its own data.</p>
+      </div>
+      <ol class="pipe">
+        <li><h3>Convert</h3><p>RTKLIB <code>convbin -r nov</code> turns the NovAtel <code>.GPS</code> file into RINEX and writes the correct station position into the header.</p></li>
+        <li><h3>Geometry</h3><p>Broadcast ephemeris or SP3 orbits give azimuth, elevation and the pierce point on the 350 km shell for every second.</p></li>
+        <li><h3>Slant TEC</h3><p>Code <code>P2 − C1</code> is absolute but noisy; phase <code>L1λ1 − L2λ2</code> is precise but offset. Each satellite pass is levelled to the code, and passes that cross midnight are levelled as one.</p></li>
+        <li><h3>Biases</h3><p>Satellite biases from CODE DCB files, downloaded for you. The receiver bias comes from that night's data by least squares, allowing north–south and east–west gradients, and never makes VTEC negative.</p></li>
+        <li><h3>Vertical TEC</h3><p><span class="formula">VTEC = STEC · √(1 − (R<sub>e</sub> cos E / (R<sub>e</sub> + h))²)</span>, using only satellites above the cut-off.</p></li>
+        <li><h3>Station curve</h3><p>All satellites are fitted together as <code>V0(t) + Gn·Δlat + Ge·Δlon</code>, so the curve stays smooth when satellites rise and set, and the gradients are saved too.</p></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="block" id="figures">
+    <div class="wrap">
+      <div class="head">
+        <p class="label">Figures</p>
+        <h2>Made for the paper, not the screen.</h2>
+        <p>Vector PDF with editable text and 300 dpi PNG. Legends sit outside the data, colours are safe for colour-blind readers, and the tests fail if any two labels touch.</p>
+      </div>
+      <div class="plates">
+        <figure>
+          <div class="plate"><img src="images/daily_vtec.png" alt="Daily vertical TEC at station SKBU on 25 December 2022: grey satellite tracks, a smooth blue station curve peaking at 75.6 TECU at 7.6 UT, the CODE global map as an orange dashed line, and a satellite-count panel below." width="2160" height="1425" ></div>
+          <figcaption><b>Daily VTEC, SKBU, 25 December 2022.</b><span>Satellites above 50°, the gradient-corrected station curve with its calibration band, and the CODE global ionosphere map for comparison. UT below, local time above.</span></figcaption>
+        </figure>
+        <div class="pair">
+          <figure>
+            <div class="plate"><img src="images/midnight_continuity.png" alt="Two days of station VTEC on one time axis with the CODE map, and below it the jump at midnight between the days, +0.8 TECU, inside the uncertainty band." width="2160" height="1339" ></div>
+            <figcaption><b>Midnight continuity.</b><span>The same satellites seen at 00:00:00 and 00:00:01 must agree. The jump is split into the receiver-bias change and anything left from processing.</span></figcaption>
+          </figure>
+          <figure>
+            <div class="plate"><img src="images/pierce_points.png" alt="Map of pierce-point tracks around the station: grey tracks below 50 degrees, blue tracks above 50 degrees coloured by VTEC." width="1560" height="1528" ></div>
+            <figcaption><b>Pierce points at 350 km.</b><span>Grey tracks are below the cut-off and not used; coloured tracks show where each measurement samples the ionosphere.</span></figcaption>
+          </figure>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="start">
+    <div class="wrap">
+      <div class="head">
+        <p class="label">Get started</p>
+        <h2>Three commands, then one per week of data.</h2>
+      </div>
+      <div class="cols">
+        <div>
+          <h3>Install</h3>
+          <p>Python 3.9 or newer on Linux, macOS or Windows. <code>install-convbin</code> builds RTKLIB's converter and needs git, gcc and make; it is only needed for <code>.GPS</code> files.</p>
+          <div class="code"><button type="button" data-copy="install">Copy</button><pre id="install">pip install gpstec
+gpstec install-convbin
+gpstec init</pre></div>
+        </div>
+        <div>
+          <h3>Run</h3>
+          <p>Put your antenna's latitude, longitude and height in <code>station.toml</code>. Bias files and global maps are downloaded into <code>dcb/</code> and <code>gim/</code>.</p>
+          <div class="code"><button type="button" data-copy="run">Copy</button><pre id="run"><span class="c"># a week of receiver files</span>
+gpstec run -c station.toml -o results 2242_*.GPS
+<span class="c"># or RINEX, with another cut-off</span>
+gpstec run -c station.toml -o results skbu3590.22o --elev 40</pre></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="checks">
+    <div class="wrap cols">
+      <div>
+        <p class="label">What you get each day</p>
+        <h2>Numbers you can defend.</h2>
+      </div>
+      <ul class="checks">
+        <li><div><h3>1-minute VTEC table</h3><p>Mean of satellites, scatter, satellite count, smooth station VTEC, gradients and the global-map value, in CSV, plus Gopi-style .Std and .Cmn files.</p></div></li>
+        <li><div><h3>Calibration report</h3><p>Every bias, the method, the night-time difference from the CODE map, and warnings, in one JSON file per day.</p></div></li>
+        <li><div><h3>Multi-day views</h3><p>All days overlaid, a day-by-hour map, and the midnight continuity figure with a summary table.</p></div></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="block" id="cite">
+    <div class="wrap">
+      <div class="head">
+        <p class="label">Citing</p>
+        <h2>If gpstec helps your research, please cite it.</h2>
+      </div>
+      <p class="cite" id="citation">Banerjee, D. (2026). gpstec: calibrated GPS total electron content from GPStation-6 receivers (version 1.0.0). https://github.com/dipanjanbanerjee/gpstec</p>
+      <p style="margin-top:1rem"><button type="button" data-copy="citation">Copy citation</button></p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>© 2026 Dipanjan Banerjee · MIT License</span>
+    <span><a href="https://github.com/dipanjanbanerjee/gpstec">GitHub</a> · <a href="https://pypi.org/project/gpstec/">PyPI</a> · <a href="https://github.com/dipanjanbanerjee/gpstec/issues">Report a problem</a></span>
+  </div>
+</footer>
+
+<script>
+(function () {
+  // ── copy buttons ──
+  var toast = document.getElementById("toast");
+  function copy(text, btn) {
+    function done(ok) {
+      var old = btn.textContent;
+      btn.textContent = ok ? "Copied" : "Select and copy";
+      setTimeout(function () { btn.textContent = old; }, 1600);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
+    } else { done(false); }
+  }
+  document.getElementById("copy-pip").addEventListener("click", function (e) {
+    copy(document.getElementById("pipcmd").textContent, e.currentTarget);
+  });
+  document.querySelectorAll("[data-copy]").forEach(function (b) {
+    b.addEventListener("click", function () { copy(document.getElementById(b.dataset.copy).innerText, b); });
+  });
+
+  // ── the sky: Earth, the 350 km shell, satellites and rays above the cut-off ──
+  var cv = document.getElementById("sky"), ctx = cv.getContext("2d");
+  var slider = document.getElementById("elev"), out = document.getElementById("elev-out"), readout = document.getElementById("readout");
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var W = 0, H = 0, dpr = 1, stars = [], sats = [];
+  var GREEN = [134, 217, 195], RED = [233, 167, 157], INK = [228, 236, 239];
+  function rgba(c, a) { return "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + a + ")"; }
+  function rnd(a, b) { return a + Math.random() * (b - a); }
+
+  function setup() {
+    var r = cv.getBoundingClientRect();
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = r.width; H = r.height;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    stars = [];
+    for (var i = 0; i < Math.round(W * H / 5200); i++) stars.push({ x: rnd(0, W), y: rnd(0, H * 0.8), r: rnd(0.3, 1.1), p: rnd(0, 6.3), s: rnd(0.3, 1) });
+    if (!sats.length) for (var k = 0; k < 18; k++) sats.push({ a: rnd(-1, 1), w: rnd(0.012, 0.03) * (Math.random() < 0.5 ? -1 : 1), t: rnd(0, 6.3) });
+  }
+
+  function geom() {
+    var R = Math.max(W * 1.1, 900);
+    var top = H * 0.86;                          // Earth's limb at the station
+    return { R: R, cx: W * 0.68, cy: top + R, shell: R + H * 0.2, orbit: R + H * 0.72 };
+  }
+
+  function draw(t) {
+    var g = geom(), cut = +slider.value, sx = g.cx, sy = g.cy - g.R;
+    ctx.clearRect(0, 0, W, H);
+    var sky = ctx.createLinearGradient(0, 0, 0, H);
+    sky.addColorStop(0, "#081019"); sky.addColorStop(1, "#0c1b27");
+    ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+
+    stars.forEach(function (s) {
+      var a = 0.25 + 0.35 * s.s * (0.6 + 0.4 * Math.sin(t * 0.0006 * s.s + s.p));
+      ctx.fillStyle = rgba(INK, a); ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 6.283); ctx.fill();
+    });
+
+    // the shell: a soft band whose glow has two crests, like the equatorial anomaly
+    var band = H * 0.07;
+    for (var j = 0; j < 3; j++) {
+      ctx.lineWidth = band * (1 - j * 0.3);
+      var lg = ctx.createLinearGradient(0, 0, W, 0);
+      var drift = (t * 0.00002) % 1;
+      [0, 0.18, 0.36, 0.5, 0.64, 0.82, 1].forEach(function (p, i) {
+        var crest = i === 2 || i === 4 ? 1 : 0.35;
+        var q = (p + drift) % 1;
+        lg.addColorStop(Math.min(Math.max(q, 0), 1), rgba(i % 3 === 0 ? RED : GREEN, (0.05 + 0.06 * crest) * (j + 1) / 2));
+      });
+      ctx.strokeStyle = lg;
+      ctx.beginPath(); ctx.arc(g.cx, g.cy, g.shell, Math.PI, 2 * Math.PI); ctx.stroke();
+    }
+    ctx.lineWidth = 1; ctx.strokeStyle = rgba(GREEN, 0.25); ctx.setLineDash([2, 6]);
+    ctx.beginPath(); ctx.arc(g.cx, g.cy, g.shell, Math.PI, 2 * Math.PI); ctx.stroke(); ctx.setLineDash([]);
+
+    // elevation cone at the station
+    var half = (90 - cut) * Math.PI / 180, L = H * 1.2;
+    ctx.fillStyle = rgba(GREEN, 0.045);
+    ctx.beginPath(); ctx.moveTo(sx, sy);
+    ctx.lineTo(sx - Math.sin(half) * L, sy - Math.cos(half) * L);
+    ctx.lineTo(sx + Math.sin(half) * L, sy - Math.cos(half) * L); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = rgba(GREEN, 0.3); ctx.setLineDash([4, 5]);
+    [-1, 1].forEach(function (s) { ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + s * Math.sin(half) * L, sy - Math.cos(half) * L); ctx.stroke(); });
+    ctx.setLineDash([]);
+
+    // satellites and rays
+    var inView = 0, used = 0, span = Math.asin(Math.min(1, W / g.orbit)) + 0.25;
+    sats.forEach(function (s) {
+      var phi = s.a * span + (reduce ? 0 : s.w * t * 0.001 * 0.25);
+      phi = ((phi + span) % (2 * span) + 2 * span) % (2 * span) - span;
+      var px = g.cx + g.orbit * Math.sin(phi), py = g.cy - g.orbit * Math.cos(phi);
+      var vx = px - sx, vy = py - sy;
+      var el = Math.atan2(-vy, Math.abs(vx)) * 180 / Math.PI;
+      if (el <= 0 || px < -20 || px > W + 20 || py > H) return;
+      inView++;
+      var ok = el >= cut;
+      if (ok) used++;
+      ctx.strokeStyle = ok ? rgba(GREEN, 0.55) : rgba(INK, 0.1); ctx.lineWidth = ok ? 1.2 : 1;
+      ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(px, py); ctx.stroke();
+      // pierce point on the shell
+      var fx = sx - g.cx, fy = sy - g.cy, a = vx * vx + vy * vy, b = 2 * (fx * vx + fy * vy), c = fx * fx + fy * fy - g.shell * g.shell;
+      var d = b * b - 4 * a * c;
+      if (d > 0) {
+        var u = (-b + Math.sqrt(d)) / (2 * a), ix = sx + u * vx, iy = sy + u * vy;
+        if (ok) {
+          var glow = ctx.createRadialGradient(ix, iy, 0, ix, iy, 12);
+          glow.addColorStop(0, rgba(GREEN, 0.9)); glow.addColorStop(1, rgba(GREEN, 0));
+          ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(ix, iy, 12, 0, 6.283); ctx.fill();
+        } else {
+          ctx.fillStyle = rgba(INK, 0.25); ctx.beginPath(); ctx.arc(ix, iy, 1.6, 0, 6.283); ctx.fill();
+        }
+      }
+      // satellite body with small panels
+      ctx.save(); ctx.translate(px, py); ctx.rotate(phi);
+      ctx.fillStyle = ok ? rgba(GREEN, 0.95) : rgba(INK, 0.45);
+      ctx.fillRect(-2.5, -2.5, 5, 5);
+      ctx.fillStyle = ok ? rgba(GREEN, 0.5) : rgba(INK, 0.2);
+      ctx.fillRect(-11, -1.2, 7, 2.4); ctx.fillRect(4, -1.2, 7, 2.4);
+      ctx.restore();
+    });
+
+    // Earth
+    var eg = ctx.createRadialGradient(g.cx, g.cy - g.R, 0, g.cx, g.cy - g.R, H * 0.9);
+    eg.addColorStop(0, "#14303c"); eg.addColorStop(1, "#0a1822");
+    ctx.fillStyle = eg; ctx.beginPath(); ctx.arc(g.cx, g.cy, g.R, 0, 6.283); ctx.fill();
+    ctx.strokeStyle = rgba(GREEN, 0.35); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(g.cx, g.cy, g.R, Math.PI, 2 * Math.PI); ctx.stroke();
+    // station
+    ctx.fillStyle = rgba(INK, 0.95);
+    ctx.beginPath(); ctx.moveTo(sx, sy - 7); ctx.lineTo(sx - 5, sy + 1); ctx.lineTo(sx + 5, sy + 1); ctx.closePath(); ctx.fill();
+
+    readout.textContent = "satellites in view " + inView + " · used " + used;
+  }
+
+  function frame(t) { draw(t); if (!reduce) requestAnimationFrame(frame); }
+  slider.addEventListener("input", function () { out.textContent = slider.value + "°"; if (reduce) draw(0); });
+  window.addEventListener("resize", function () { setup(); if (reduce) draw(0); });
+  setup();
+  if (reduce) draw(0); else requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

@@ -5,6 +5,8 @@
 [![tests](https://github.com/dipanjanbanerjee/gpstec/actions/workflows/tests.yml/badge.svg)](https://github.com/dipanjanbanerjee/gpstec/actions/workflows/tests.yml)
 [![PyPI](https://img.shields.io/pypi/v/gpstec.svg)](https://pypi.org/project/gpstec/)
 
+Website: https://dipanjanbanerjee.github.io/gpstec/
+
 gpstec turns a raw GPStation-6 `.GPS` file (or any RINEX 2/3 observation file) into calibrated slant and vertical TEC, with a user-chosen elevation cut-off. It writes daily data files and publication-quality figures in one command:
 
 ```
