@@ -1,0 +1,54 @@
+# gpstec configuration file. Created by `gpstec init`; edit the [station] block for your receiver.
+# Every value is optional: anything left out keeps its default.
+
+[station]
+name = "skbu"
+lat = 23.3607          # degrees N   (the surveyed antenna position; never trust the RINEX header)
+lon = 86.3408          # degrees E
+height = 285.279       # metres (ellipsoidal)
+utc_offset_h = 5.5     # local time axis on plots (IST)
+
+[processing]
+shell_height_km = 350.0
+
+# Elevation limits (degrees)
+mask_elevation = 10.0      # data below this is ignored completely
+level_elevation = 20.0     # phase-to-code levelling uses points above this
+calib_elevation = 30.0     # receiver-bias estimation uses points above this
+calib_night_lt = [22.0, 6.0]   # ...and only this local-time window ([] = whole day)
+output_elevation = 50.0    # VTEC products (CSV, Std, plots) use satellites above this
+
+# Satellite biases:
+#   "auto"     use dcb_files if given, else download CODE monthly files into dcb_dir,
+#              else estimate them from the data (less accurate)
+#   "file"     require dcb_files
+#   "estimate" always estimate from the data
+sat_dcb = "auto"
+dcb_files = []             # e.g. ["dcb/P1P22212.DCB", "dcb/P1C12212.DCB"]
+dcb_dir = "dcb"
+
+# Receiver bias (night data only, each day on its own):
+#   "lsq"    least squares with north/east gradients (default; most stable on 25-26 Dec 2022)
+#   "minstd" minimum spread between satellites (Gopi-style; drifts with strong gradients)
+#   "gim"    match the CODE global ionosphere map;  or a fixed number in TECU
+receiver_bias = "lsq"
+lsq_elevation = 20.0
+receiver_bias_multiday = "per_day"    # each day calibrated on its own ("median" = one value per run)
+enforce_nonnegative = true          # never let the receiver bias make VTEC negative
+
+gim = "auto"               # CODE global ionosphere map as reference line + check ("off" to skip)
+gim_dir = "gim"
+
+bin_minutes = 1.0
+smooth_knot_min = 60.0     # smoothness of the station VTEC curve (smaller = more detail)
+clip_sigma = 2.0
+
+# Figures (publication quality: vector PDF + 300 dpi PNG by default)
+figure_formats = ["png", "pdf"]   # any of "png", "pdf", "svg", "eps", "tiff"
+figure_dpi = 300
+figure_width_in = 7.2      # 7.2 in = full page width; 3.5 in = one journal column
+figure_titles = true       # false = no title line (put the caption in the paper)
+
+# RTKLIB convbin, needed only for .GPS input (`gpstec install-convbin` builds it)
+convbin = "convbin"          # or a full path, e.g. "/home/you/.local/bin/convbin"
+convbin_format = "nov"     # NovAtel OEM6/OEM7 binary (GPStation-6)

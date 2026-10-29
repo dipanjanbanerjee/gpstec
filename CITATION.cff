@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "gpstec: calibrated GPS total electron content from GPStation-6 receivers"
+type: software
+authors:
+  - family-names: Banerjee
+    given-names: Dipanjan
+version: 1.0.0
+date-released: 2026-10-29
+repository-code: "https://github.com/dipanjanbanerjee/gpstec"
+url: "https://pypi.org/project/gpstec/"
+keywords:
+  - GPS
+  - total electron content
+  - ionosphere
+  - GPStation-6
+  - differential code bias

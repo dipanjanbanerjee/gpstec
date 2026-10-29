@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gpstec"
+version = "1.0.0"
+description = "Calibrated GPS total electron content (TEC) from NovAtel GPStation-6 and other dual-frequency receivers, with elevation cut-off and publication-quality plots"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{name = "Dipanjan Banerjee"}]
+maintainers = [{name = "Dipanjan Banerjee"}]
+keywords = ["GPS", "GNSS", "TEC", "VTEC", "ionosphere", "GPStation-6", "NovAtel", "RINEX", "DCB",
+            "space weather", "equatorial ionization anomaly"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Atmospheric Science",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "scipy>=1.10",
+    "matplotlib>=3.7",
+    "unlzw3>=0.2",
+    "tomli>=2.0; python_version < \"3.11\"",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[project.urls]
+Homepage = "https://github.com/dipanjanbanerjee/gpstec"
+Source = "https://github.com/dipanjanbanerjee/gpstec"
+Issues = "https://github.com/dipanjanbanerjee/gpstec/issues"
+
+[project.scripts]
+gpstec = "gpstec.__main__:main"
+
+[tool.setuptools]
+packages = ["gpstec", "gpstec.data"]
+
+[tool.setuptools.package-data]
+"gpstec.data" = ["*.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

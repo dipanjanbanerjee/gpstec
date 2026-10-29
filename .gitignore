@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+tec_output/
+results/
+dcb/
+gim/
+rinex/
+_work/
+*.GPS
