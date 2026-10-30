@@ -364,7 +364,8 @@ def plot_ipp_map(d, station, settings, path, day, return_fig=False):
                           label=f"Below {settings.output_elevation:g}° (not used)"),
                    Line2D([], [], marker="^", ls="none", color=INK, ms=6, label=f"Station {station.name.upper()}")]
         _legend(fig, handles, ncol=2)
-        _title(ax, settings, f"{station.name.upper()}   {day}   Pierce points at {settings.shell_height_km:g} km, every {_fmt_s(_interval_s(s["time"]))}")
+        every = _fmt_s(_interval_s(s["time"]))
+        _title(ax, settings, f"{station.name.upper()}   {day}   Pierce points at {settings.shell_height_km:g} km, every {every}")
     if return_fig:
         return fig
     return save(fig, path, settings)
