@@ -66,6 +66,10 @@ def prepare_file(path, station, settings, out_dir, nav=None, sp3=None, orbit=Non
     log(f"  {d['arc'].nunique()} satellite arcs; first-frequency code: {code_used}")
     info = {"file": str(path), "obs_file": str(obs_path), "nav_file": str(nav) if nav else None,
             "code_used": code_used, "station": station.__dict__.copy()}
+    ut = np.unique(d["time"].to_numpy())
+    info["obs_interval_s"] = float(np.median(np.diff(ut)) / np.timedelta64(1, "s")) if len(ut) > 1 else None
+    if info["obs_interval_s"]:
+        log(f"  receiver sampling interval: {info['obs_interval_s']:g} s")
     return d, info
 
 
@@ -106,9 +110,18 @@ def gim_file(d, settings, info, log=print):
 
 def receiver_bias_from_gim(sub, path, settings, info):
     """B_rx that makes the night-time VTEC of high satellites match the GIM (median)."""
+    # only data within 2.5 min of a map epoch, compared with that map (no time interpolation)
     s = sub[sub["el"] >= settings.output_elevation].iloc[::30]
     st = info["station"]
-    g = gim.station_series(path, st["lat"], st["lon"], s["time"].to_numpy())
+    t = s["time"].to_numpy()
+    ep, gv, _ = gim.station_maps(path, st["lat"], st["lon"], t.min() - np.timedelta64(1, "h"),
+                                 t.max() + np.timedelta64(1, "h"), method=settings.gim_station)
+    if not len(ep):
+        raise ValueError("no GIM map inside the night window")
+    k = np.clip(np.searchsorted(ep, t), 1, len(ep) - 1)
+    k = np.where(np.abs(t - ep[k - 1]) <= np.abs(t - ep[k]), k - 1, k)
+    near = np.abs(t - ep[k]) <= np.timedelta64(150, "s")
+    g = np.where(near, gv[k], np.nan)
     b = g / s["mf"].to_numpy() - s["stec_sat"].to_numpy()
     b = b[np.isfinite(b)]
     if len(b) < 20:
@@ -384,8 +397,8 @@ def _continuity_report(bounds, summary, all_series, station, settings, out_dir, 
         if j is not None:
             log(f"  midnight check {prev['date']} -> {nxt['date']}: VTEC jump {j:+.2f} TECU "
                 f"({res['n_sats_el30']} satellites, of which receiver bias {res['jump_from_rx_bias']:+.2f}, "
-                f"arc levelling {res['jump_from_levelling']:+.2f}); smooth curve jump "
-                f"{res.get('smooth_jump', float('nan')):+.2f}  [{res['status']}]")
+                f"arc levelling {res['jump_from_levelling']:+.2f}); 1-min series jump "
+                f"{res.get('series_jump', float('nan')):+.2f}  [{res['status']}]")
         for s in summary:
             if str(s["date"]) == prev["date"]:
                 s["midnight_jump_to_next_day_tecu"] = j
@@ -414,40 +427,59 @@ def _write_days(d, info, station, settings, out_dir, write_cmn, summary, log):
         day_dir.mkdir(exist_ok=True)
         s = products.daily_series(d, day, el_min=settings.output_elevation, bin_min=settings.bin_minutes,
                                   nsig=settings.clip_sigma, min_sats=settings.min_sats_per_bin)
-        dpad = pd.concat([d] + info.get("_pad", []), ignore_index=True) if info.get("_pad") else d
-        sm = products.smooth_station_vtec(dpad, day, station.lat, station.lon, el_min=settings.output_elevation,
-                                          knot_min=settings.smooth_knot_min, grid_min=settings.bin_minutes)
-        for col in ("vtec_smooth", "grad_north", "grad_east"):
-            s[col] = sm[col].to_numpy()
+        if settings.smooth_curve:            # optional model curve; off by default (plots show data only)
+            dpad = pd.concat([d] + info.get("_pad", []), ignore_index=True) if info.get("_pad") else d
+            sm = products.smooth_station_vtec(dpad, day, station.lat, station.lon, el_min=settings.output_elevation,
+                                              knot_min=settings.smooth_knot_min, grid_min=settings.bin_minutes)
+            for col in ("vtec_smooth", "grad_north", "grad_east"):
+                s[col] = sm[col].to_numpy()
         # calibration uncertainty: spread of the independent receiver-bias estimates
         diag = info.get("receiver_bias_diagnostics", {})
         ests = [v for k, v in diag.items() if k.startswith("night_lsq_el") or k == "night_gim_match"]
         ests = [e for e in ests if e is not None and np.isfinite(e)]
         unc = max(0.5, float(np.std(ests))) if len(ests) > 1 else None
         s["vtec_uncertainty"] = unc * 0.9 if unc else np.nan        # mf ~0.9 above 50 deg
+        gim_hourly = None
         if info.get("gim_file"):
-            t = day + (s["ut_hour"].to_numpy() * 3.6e12).astype("timedelta64[ns]")
-            s["vtec_gim"] = gim.station_series(info["gim_file"], station.lat, station.lon, t)
+            # only the published hourly maps, never values in between
+            ep, gv, ginfo = gim.station_maps(info["gim_file"], station.lat, station.lon, day,
+                                             day + np.timedelta64(1, "D"), method=settings.gim_station)
+            gim_hourly = pd.DataFrame({"date": str(day), "ut_hour": (ep - day) / np.timedelta64(1, "h"),
+                                       "vtec_gim": gv})
+            gim_hourly.attrs.update(ginfo)
+            gim_hourly.to_csv(day_dir / f"{tag}_gim_hourly.csv", index=False, float_format="%.2f")
+            col = np.full(len(s), np.nan)
+            key = {round(h * 60): v for h, v in zip(gim_hourly["ut_hour"], gv)}
+            for i, h in enumerate(s["ut_hour"].to_numpy()):
+                col[i] = key.get(round(h * 60), np.nan)
+            s["vtec_gim"] = col                                     # filled only at the map epochs
+            info["gim_resolution"] = ginfo
         s.to_csv(day_dir / f"{tag}_vtec_{settings.bin_minutes:g}min.csv", index=False, float_format="%.3f")
         products.write_std_like(s, day_dir / f"{tag}.Std", station)
         dd = d[(d["time"] >= day) & (d["time"] < day + np.timedelta64(1, "D"))]
         if write_cmn:
             products.write_cmn_like(dd, day_dir / f"{tag}.Cmn", station, settings, source=info["file"])
-        plots.plot_day(d, s, station, settings, day_dir / f"{tag}_vtec.png")
+        plots.plot_day(d, s, station, settings, day_dir / f"{tag}_vtec.png", gim_hourly=gim_hourly)
         plots.plot_ipp_map(d, station, settings, day_dir / f"{tag}_pierce_points.png", day)
         out.append(s)
         extra = {}
         if "vtec_gim" in s:
+            # compare at the map epochs only: 1-min station value at hh:00 vs that map
             lt = (s["ut_hour"] + station.utc_offset_h) % 24
             a, b = settings.calib_night_lt or [22.0, 6.0]
             night = (lt >= a) | (lt < b)
-            dif = (s["vtec_smooth"] - s["vtec_gim"])[night]
+            dif = (s["vtec"] - s["vtec_gim"])[night]
             extra["night_minus_gim_tecu"] = float(np.nanmedian(dif)) if dif.notna().any() else None
-            log(f"  {day}: station VTEC minus CODE GIM at night = {extra['night_minus_gim_tecu']:+.2f} TECU")
+            if extra["night_minus_gim_tecu"] is not None:
+                log(f"  {day}: station VTEC minus CODE GIM at night (hourly maps) = "
+                    f"{extra['night_minus_gim_tecu']:+.2f} TECU")
         if s["vtec_uncertainty"].notna().any():
             extra["calibration_uncertainty_tecu"] = float(s["vtec_uncertainty"].iloc[0])
         day_info = dict({k: v for k, v in info.items() if not k.startswith("_")}, **extra, date=str(day),
-                        peak_vtec=float(np.nanmax(s["vtec_smooth"])) if s["vtec_smooth"].notna().any() else None,
+                        peak_vtec=float(np.nanmax(s["vtec"])) if s["vtec"].notna().any() else None,
+                        peak_ut_hour=float(s["ut_hour"].iloc[int(np.nanargmax(s["vtec"]))]) if s["vtec"].notna().any() else None,
+                        time_resolution={"receiver_s": info.get("obs_interval_s"),
+                                         "station_vtec_bin_min": settings.bin_minutes},
                         coverage_fraction=float(s["vtec"].notna().mean()))
         with open(day_dir / f"{tag}_calibration.json", "w") as fh:
             json.dump(day_info, fh, indent=2, default=str)

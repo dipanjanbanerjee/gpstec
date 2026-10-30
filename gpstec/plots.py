@@ -163,12 +163,47 @@ def text_overlaps(fig, pad_px=0.5):
 
 
 # ───────────────────────────── daily figure ─────────────────────────────
-def plot_day(d, series, station, settings, path, title_extra="", return_fig=False):
-    """One day: satellite tracks, average, smooth station VTEC, GIM, satellite count."""
+def _interval_s(times):
+    """Sampling interval of the data in seconds (median step between epochs)."""
+    t = np.unique(np.asarray(times, dtype="datetime64[ns]"))
+    return float(np.median(np.diff(t)) / np.timedelta64(1, "s")) if len(t) > 1 else np.nan
+
+
+def _fmt_s(sec):
+    if not np.isfinite(sec):
+        return "?"
+    if sec >= 3600:
+        return f"{sec / 3600:g} h"
+    return f"{sec / 60:g} min" if sec >= 60 else f"{sec:g} s"
+
+
+def _gim_points(series, gim_hourly):
+    """(UT hour, VTEC) of the CODE maps themselves - one point per published map."""
+    if gim_hourly is not None and len(gim_hourly):
+        return gim_hourly["ut_hour"].to_numpy(float), gim_hourly["vtec_gim"].to_numpy(float), gim_hourly.attrs
+    if "vtec_gim" in series and series["vtec_gim"].notna().any():
+        g = series.dropna(subset=["vtec_gim"])
+        return g["ut_hour"].to_numpy(float), g["vtec_gim"].to_numpy(float), {}
+    return None, None, {}
+
+
+def _gim_label(attrs):
+    step = attrs.get("interval_s")
+    grid = f", {attrs['dlat']:g}° × {attrs['dlon']:g}° grid" if attrs.get("dlat") else ""
+    every = f"one map every {_fmt_s(step)}" if step else "hourly maps"
+    return f"CODE global map ({every}{grid})"
+
+
+def plot_day(d, series, station, settings, path, title_extra="", return_fig=False, gim_hourly=None):
+    """One day, measured values only: every satellite's VTEC at the receiver's own
+    sampling, the per-bin mean of the satellites, and the CODE map at its map epochs.
+    Nothing is interpolated or smoothed between points."""
     day = np.datetime64(series["date"].iloc[0], "D")
     el = settings.output_elevation
     s = d[(d["el"] >= el) & (d["time"] >= day) & (d["time"] < day + np.timedelta64(1, "D"))]
-    fig = _fig(settings, 0.66)
+    dt_rx = _interval_s(s["time"]) if len(s) else np.nan
+    binm = settings.bin_minutes
+    fig = _fig(settings, 0.70)
     with plt.rc_context(RC):
         gs = fig.add_gridspec(2, 1, height_ratios=[4, 1])
         ax = fig.add_subplot(gs[0])
@@ -176,30 +211,37 @@ def plot_day(d, series, station, settings, path, title_extra="", return_fig=Fals
         _style(ax)
         _style(axn)
 
+        gap_h = max(2 / 60, 3 * dt_rx / 3600) if np.isfinite(dt_rx) else 2 / 60
         for prn, g in s.groupby("prn"):
             h = (g["time"] - day).dt.total_seconds().to_numpy() / 3600
             v = g["vtec"].to_numpy()
-            brk = np.where(np.diff(h) > 2 / 60)[0] + 1
+            brk = np.where(np.diff(h) > gap_h)[0] + 1          # never draw across a data gap
             for hh, vv in zip(np.split(h, brk), np.split(v, brk)):
-                ax.plot(hh[::10], vv[::10], color=SAT_GRAY, lw=0.6, zorder=1, solid_capstyle="round")
+                ax.plot(hh, vv, color=SAT_GRAY, lw=0.6, zorder=1, solid_capstyle="round", rasterized=True)
 
-        x = series["ut_hour"].to_numpy() + settings.bin_minutes / 120.0
-        raw = series["vtec"].to_numpy()
-        m = series["vtec_smooth"].to_numpy() if "vtec_smooth" in series else raw
-        handles = [Line2D([], [], color=SAT_GRAY, lw=1.2, label=f"Satellites ≥ {el:g}°"),
-                   Line2D([], [], color=INK2, lw=0.8, label=f"Mean of satellites ({settings.bin_minutes:g} min)")]
-        ax.plot(x, raw, color=INK2, lw=0.6, zorder=2)
+        x = series["ut_hour"].to_numpy() + binm / 120.0           # centre of each bin
+        m = series["vtec"].to_numpy()
+        handles = [Line2D([], [], color=SAT_GRAY, lw=1.2,
+                          label=f"Each satellite ≥ {el:g}°, every {_fmt_s(dt_rx)} measurement"),
+                   Line2D([], [], color=BLUE, lw=1.4, label=f"Station VTEC, {binm:g}-min mean of the satellites")]
         if "vtec_uncertainty" in series and series["vtec_uncertainty"].notna().any():
             u = series["vtec_uncertainty"].to_numpy()
             ax.fill_between(x, m - u, m + u, color=BLUE_LIGHT, lw=0, zorder=2)
-            handles.append(matplotlib.patches.Patch(color=BLUE_LIGHT, label=f"Calibration uncertainty (±{np.nanmax(u):.1f})"))
-        if "vtec_gim" in series and series["vtec_gim"].notna().any():
-            ax.plot(x, series["vtec_gim"], color=ORANGE, lw=1.2, ls=(0, (4, 2)), zorder=3)
-            handles.append(Line2D([], [], color=ORANGE, lw=1.2, ls=(0, (4, 2)), label="CODE global map"))
-        ax.plot(x, m, color=BLUE, lw=2.0, zorder=4)
-        handles.append(Line2D([], [], color=BLUE, lw=2.0, label="Station VTEC (gradient-corrected)"))
+            handles.append(matplotlib.patches.Patch(color=BLUE_LIGHT,
+                                                    label=f"Calibration uncertainty (±{np.nanmax(u):.1f} TECU)"))
+        ax.plot(x, m, color=BLUE, lw=1.4, zorder=4)
+        if getattr(settings, "smooth_curve", False) and "vtec_smooth" in series:
+            ax.plot(x, series["vtec_smooth"], color=INK, lw=0.9, ls=(0, (1, 1.5)), zorder=5)
+            handles.append(Line2D([], [], color=INK, lw=0.9, ls=(0, (1, 1.5)),
+                                  label=f"Spline model (knots every {settings.smooth_knot_min:g} min)"))
+        gx, gy, gattr = _gim_points(series, gim_hourly)
+        if gx is not None:
+            ax.plot(gx, gy, "D", ms=3.6, color=ORANGE, mec=SURFACE, mew=0.6, ls="none", zorder=6)
+            handles.append(Line2D([], [], marker="D", ms=4, color=ORANGE, mec=SURFACE, ls="none",
+                                  label=_gim_label(gattr)))
 
-        vals = np.r_[m[np.isfinite(m)], s["vtec"].to_numpy() if len(s) else [], 10.0]
+        vals = np.r_[m[np.isfinite(m)], s["vtec"].to_numpy() if len(s) else [],
+                     gy[np.isfinite(gy)] if gx is not None else [], 10.0]
         ymax = float(np.nanmax(vals))
         ymin = min(0.0, float(np.nanmin(np.r_[s["vtec"].to_numpy() if len(s) else [0.0], 0.0])))
         ax.set_ylim(ymin, ymax * 1.16)
@@ -208,21 +250,21 @@ def plot_day(d, series, station, settings, path, title_extra="", return_fig=Fals
         ax.yaxis.set_major_locator(MaxNLocator(nbins=6, integer=True))
         if np.isfinite(m).any():
             i = int(np.nanargmax(m))
-            ax.plot([x[i]], [m[i]], "o", ms=3.5, color=BLUE, mec=SURFACE, mew=1, zorder=5)
-            ax.annotate(f"{m[i]:.1f} TECU, {x[i]:.1f} UT", (x[i], m[i]), xytext=(6, 5),
+            ax.plot([x[i]], [m[i]], "o", ms=3.5, color=BLUE, mec=SURFACE, mew=1, zorder=7)
+            ax.annotate(f"{m[i]:.1f} TECU, {x[i]:.2f} UT", (x[i], m[i]), xytext=(6, 5),
                         textcoords="offset points", ha="left" if x[i] < 18 else "right",
-                        color=INK, fontsize=7.5, path_effects=HALO, zorder=6)
+                        color=INK, fontsize=7.5, path_effects=HALO, zorder=8)
         ax.tick_params(labelbottom=False)
         _hour_axis(ax, station.utc_offset_h)
         _title(ax, settings, f"{station.name.upper()}   {day}   Vertical TEC, elevation ≥ {el:g}°{title_extra}")
 
-        axn.bar(x, series["n_sats"], width=settings.bin_minutes / 60.0, color=SAT_GRAY, lw=0)
-        axn.set_ylabel("Satellites", color=INK)
+        axn.bar(x, series["n_sats"], width=binm / 60.0, color=SAT_GRAY, lw=0)
+        axn.set_ylabel(f"Satellites\nper {binm:g} min", color=INK)
         axn.set_xlabel("Universal time (h)", color=INK)
         axn.set_ylim(0, max(4, float(np.nanmax(series["n_sats"])) + 1))
         axn.yaxis.set_major_locator(MaxNLocator(integer=True, nbins=3))
         axn.set_xlim(0, 24)
-        _legend(fig, handles, ncol=3)
+        _legend(fig, handles, ncol=2)
         fig.align_ylabels([ax, axn])
     if return_fig:
         return fig
@@ -242,12 +284,12 @@ def plot_overlay(all_series, station, settings, path, return_fig=False):
         for i, day in enumerate(days):
             s = all_series[all_series["date"].astype(str) == day]
             color = SAT_GRAY if many else SERIES[i]
-            ax.plot(s["ut_hour"] + settings.bin_minutes / 120.0, s["vtec_smooth"], color=color,
+            ax.plot(s["ut_hour"] + settings.bin_minutes / 120.0, s["vtec"], color=color,
                     lw=1.0 if many else 1.5)
             if not many:
                 handles.append(Line2D([], [], color=color, lw=1.5, label=day))
         if many:
-            piv = all_series.pivot_table(index="ut_hour", columns="date", values="vtec_smooth")
+            piv = all_series.pivot_table(index="ut_hour", columns="date", values="vtec")
             ax.plot(piv.index, piv.mean(axis=1), color=BLUE, lw=2)
             handles = [Line2D([], [], color=SAT_GRAY, lw=1, label="Individual days"),
                        Line2D([], [], color=BLUE, lw=2, label=f"Mean of {len(days)} days")]
@@ -256,7 +298,7 @@ def plot_overlay(all_series, station, settings, path, return_fig=False):
         ax.set_xlabel("Universal time (h)", color=INK)
         ax.set_ylabel("VTEC (TECU)", color=INK)
         _title(ax, settings, f"{station.name.upper()}   {days[0]} to {days[-1]}   Vertical TEC, elevation ≥ "
-                             f"{settings.output_elevation:g}°")
+                             f"{settings.output_elevation:g}°, {settings.bin_minutes:g}-min means")
         _legend(fig, handles, ncol=1, loc="outside right upper")
     if return_fig:
         return fig
@@ -265,7 +307,7 @@ def plot_overlay(all_series, station, settings, path, return_fig=False):
 
 def plot_heatmap(all_series, station, settings, path, return_fig=False):
     """Day × UT map of station VTEC (gaps blank)."""
-    piv = all_series.pivot_table(index="date", columns="ut_hour", values="vtec_smooth", dropna=False)
+    piv = all_series.pivot_table(index="date", columns="ut_hour", values="vtec", dropna=False)
     n = len(piv)
     fig = _fig(settings, min(1.2, 0.18 + 0.055 * n + 0.12))
     with plt.rc_context(RC):
@@ -288,7 +330,8 @@ def plot_heatmap(all_series, station, settings, path, return_fig=False):
         cb.set_label("VTEC (TECU)", color=INK)
         cb.ax.tick_params(colors=INK2)
         cb.outline.set_visible(False)
-        _title(ax, settings, f"{station.name.upper()}   Vertical TEC by day, elevation ≥ {settings.output_elevation:g}°")
+        _title(ax, settings, f"{station.name.upper()}   Vertical TEC by day, elevation ≥ {settings.output_elevation:g}°, "
+                             f"{settings.bin_minutes:g}-min bins")
     if return_fig:
         return fig
     return save(fig, path, settings)
@@ -297,7 +340,7 @@ def plot_heatmap(all_series, station, settings, path, return_fig=False):
 def plot_ipp_map(d, station, settings, path, day, return_fig=False):
     """Pierce-point tracks of the day coloured by VTEC (sky coverage check)."""
     day = np.datetime64(day, "D")
-    s = d[(d["time"] >= day) & (d["time"] < day + np.timedelta64(1, "D"))].iloc[::30]
+    s = d[(d["time"] >= day) & (d["time"] < day + np.timedelta64(1, "D"))]
     w = getattr(settings, "figure_width_in", 7.2)
     with plt.rc_context(RC):
         fig = plt.figure(figsize=(min(w, 5.2), min(w, 5.2) * 0.98), facecolor=SURFACE, layout="constrained")
@@ -321,7 +364,7 @@ def plot_ipp_map(d, station, settings, path, day, return_fig=False):
                           label=f"Below {settings.output_elevation:g}° (not used)"),
                    Line2D([], [], marker="^", ls="none", color=INK, ms=6, label=f"Station {station.name.upper()}")]
         _legend(fig, handles, ncol=2)
-        _title(ax, settings, f"{station.name.upper()}   {day}   Pierce points at {settings.shell_height_km:g} km")
+        _title(ax, settings, f"{station.name.upper()}   {day}   Pierce points at {settings.shell_height_km:g} km, every {_fmt_s(_interval_s(s["time"]))}")
     if return_fig:
         return fig
     return save(fig, path, settings)
@@ -344,9 +387,11 @@ def plot_continuity(all_series, rows, station, settings, path, return_fig=False)
         for day in days:
             s = all_series[all_series["date"].astype(str) == day]
             x = (np.datetime64(day) - d0).astype("timedelta64[h]").astype(float) + s["ut_hour"].to_numpy()
+            ax.plot(x, s["vtec"], color=BLUE, lw=1.0, zorder=3)
             if have_gim and "vtec_gim" in s and s["vtec_gim"].notna().any():
-                ax.plot(x, s["vtec_gim"], color=ORANGE, lw=1.0, ls=(0, (4, 2)), zorder=2)
-            ax.plot(x, s["vtec_smooth"], color=BLUE, lw=1.4, zorder=3)
+                g = s["vtec_gim"].notna().to_numpy()
+                ax.plot(x[g], s["vtec_gim"].to_numpy()[g], "D", ms=2.6, color=ORANGE, mec=SURFACE, mew=0.4,
+                        ls="none", zorder=4)
         for k in range(1, nd):
             for a in (ax, bx):
                 a.axvline(24 * k, color=INK2, lw=0.5, ls=(0, (1, 2)), zorder=1)
@@ -385,9 +430,10 @@ def plot_continuity(all_series, rows, station, settings, path, return_fig=False)
         bx.set_xlabel("Midnight UT (date of the new day)", color=INK)
         bx.grid(False, axis="x")
         bx.set_xlim(ax.get_xlim())
-        handles = [Line2D([], [], color=BLUE, lw=1.4, label="Station VTEC")]
+        handles = [Line2D([], [], color=BLUE, lw=1.0, label=f"Station VTEC, {settings.bin_minutes:g}-min means")]
         if have_gim:
-            handles.append(Line2D([], [], color=ORANGE, lw=1.0, ls=(0, (4, 2)), label="CODE global map"))
+            handles.append(Line2D([], [], marker="D", ms=3.5, color=ORANGE, mec=SURFACE, ls="none",
+                                  label="CODE global map, hourly maps"))
         handles += [Line2D([], [], marker="o", ls="none", color=BLUE, ms=5, label="Midnight jump, within uncertainty"),
                     Line2D([], [], marker="o", ls="none", color=RED, ms=5, label="Midnight jump, outside it"),
                     matplotlib.patches.Patch(color=BLUE_LIGHT, label="Calibration uncertainty")]

@@ -52,11 +52,13 @@ class Settings:
     floor_percentile: float = 99.5      # ...ignoring the noisiest 0.5 % of points
     gim: str = "auto"                   # CODE global ionosphere map as a reference: "auto" | "off"
     gim_dir: str = "gim"
+    gim_station: str = "bilinear"       # GIM value at the station: "bilinear" (4 grid nodes) | "nearest" node
     # daily products
     bin_minutes: float = 1.0
     clip_sigma: float = 2.0             # outlier clipping inside each bin
     min_sats_per_bin: int = 1
-    smooth_knot_min: float = 60.0       # spacing of the smooth station-VTEC curve (minutes)
+    smooth_curve: bool = False          # also fit the gradient-corrected spline curve (a model, not data)
+    smooth_knot_min: float = 60.0       # spacing of that spline curve (minutes)
     # figures
     figure_formats: list = field(default_factory=lambda: ["png", "pdf"])  # also "svg", "eps", "tiff"
     figure_dpi: int = 300               # raster resolution (PNG/TIFF)

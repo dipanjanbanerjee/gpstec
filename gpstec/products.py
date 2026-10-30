@@ -73,10 +73,10 @@ def write_cmn_like(d, path, station, settings, source=""):
 
 
 def write_std_like(series, path, station):
-    """Gopi-style .Std: UT hour, VTEC (smooth station curve), std between satellites, station latitude."""
+    """Gopi-style .Std: UT hour, VTEC (bin mean of the satellites), std between satellites, station latitude."""
     with open(path, "w", newline="\n") as fh:
         for r in series.itertuples():
-            v = -99.0 if np.isnan(r.vtec_smooth) else r.vtec_smooth
+            v = -99.0 if np.isnan(r.vtec) else r.vtec
             s = -99.0 if np.isnan(r.vtec_std) else r.vtec_std
             fh.write(f"{r.ut_hour:.3f} \t{v:.2f} \t{s:.2f} \t{station.lat:.2f}\n")
 

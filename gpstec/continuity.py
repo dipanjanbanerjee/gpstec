@@ -77,15 +77,15 @@ def compare(prev, nxt, el_out, mf_out=0.9):
         res["jump_median_out"] = round(float(hi["jump"].median()), 2) if len(hi) else None
         res["jump_from_rx_bias"] = round(float(per["jump_from_rx_bias"].median()), 2)
         res["jump_from_levelling"] = round(res["jump_median_el30"] - res["jump_from_rx_bias"], 2)
-    # smooth station curve: last value of day X vs first value of day X+1
+    # 1-min station series: last value of day X vs first value of day X+1
     sa, sb = prev["series"], nxt["series"]
     if sa is not None and sb is not None:
-        va = sa.dropna(subset=["vtec_smooth"])
-        vb = sb.dropna(subset=["vtec_smooth"])
+        va = sa.dropna(subset=["vtec"])
+        vb = sb.dropna(subset=["vtec"])
         if len(va) and len(vb) and va["ut_hour"].iloc[-1] > 23.5 and vb["ut_hour"].iloc[0] < 0.5:
-            res["smooth_end_prev"] = round(float(va["vtec_smooth"].iloc[-1]), 2)
-            res["smooth_start_next"] = round(float(vb["vtec_smooth"].iloc[0]), 2)
-            res["smooth_jump"] = round(res["smooth_start_next"] - res["smooth_end_prev"], 2)
+            res["series_end_prev"] = round(float(va["vtec"].iloc[-1]), 2)
+            res["series_start_next"] = round(float(vb["vtec"].iloc[0]), 2)
+            res["series_jump"] = round(res["series_start_next"] - res["series_end_prev"], 2)
     unc = [u for u in (prev.get("unc"), nxt.get("unc")) if u]
     tol = max(1.0, float(np.hypot(*unc)) if len(unc) == 2 else (unc[0] if unc else 1.0))
     res["tolerance_tecu"] = round(tol, 2)

@@ -120,6 +120,31 @@ def read_ionex(path):
     return np.array(epochs, dtype="datetime64[ns]"), lats, lons, tec
 
 
+def station_maps(path, lat, lon, start, end, method="bilinear"):
+    """VTEC at the station from each map whose epoch lies in [start, end] - no time interpolation.
+
+    CODE publishes one map per hour on a 2.5 deg x 5 deg grid. Each returned value is one
+    real map. In space it is either the bilinear value from the 4 grid nodes around the
+    station ("bilinear", the IONEX standard) or the value of the nearest node ("nearest").
+    Returns (epochs as datetime64[ns], values, info dict).
+    """
+    ep, lats, lons, tec = read_ionex(path)
+    start, end = np.datetime64(start, "ns"), np.datetime64(end, "ns")
+    sel = np.where((ep >= start) & (ep <= end))[0]
+    if method == "nearest":
+        i = int(np.argmin(np.abs(lats - lat)))
+        j = int(np.argmin(np.abs(((lons - lon + 180) % 360) - 180)))
+        vals = tec[sel, i, j]
+        node = (float(lats[i]), float(lons[j]))
+    else:
+        vals = station_series(path, lat, lon, ep[sel])
+        node = None
+    step = float((ep[1] - ep[0]) / np.timedelta64(1, "s")) if len(ep) > 1 else np.nan
+    info = {"interval_s": step, "dlat": float(abs(lats[1] - lats[0])), "dlon": float(abs(lons[1] - lons[0])),
+            "method": method, "nearest_node": node}
+    return ep[sel], np.asarray(vals, float), info
+
+
 def station_series(path, lat, lon, times):
     """GIM VTEC at (lat, lon) for the given datetime64 times.
 

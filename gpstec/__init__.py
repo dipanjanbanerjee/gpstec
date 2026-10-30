@@ -2,6 +2,6 @@
 
 Copyright (c) 2026 Dipanjan Banerjee. See the LICENSE file for terms.
 """
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __author__ = "Dipanjan Banerjee"
 __copyright__ = "Copyright (c) 2026 Dipanjan Banerjee"

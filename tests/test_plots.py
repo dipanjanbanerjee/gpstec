@@ -7,11 +7,9 @@ from conftest import synthetic_day
 
 def _series(d, day, station, settings):
     s = products.daily_series(d, day, el_min=settings.output_elevation, bin_min=1)
-    sm = products.smooth_station_vtec(d, day, station.lat, station.lon, el_min=settings.output_elevation)
-    for c in ("vtec_smooth", "grad_north", "grad_east"):
-        s[c] = sm[c].to_numpy()
     s["vtec_uncertainty"] = 1.2
-    s["vtec_gim"] = s["vtec_smooth"] * 0.85 + 2
+    hourly = (np.round(s["ut_hour"] * 60) % 60) == 0
+    s["vtec_gim"] = np.where(hourly, s["vtec"] * 0.85 + 2, np.nan)
     return s
 
 

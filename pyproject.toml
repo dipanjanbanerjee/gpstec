@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gpstec"
-version = "1.0.0"
+version = "1.1.0"
 description = "Calibrated GPS total electron content (TEC) from NovAtel GPStation-6 and other dual-frequency receivers, with elevation cut-off and publication-quality plots"
 readme = "README.md"
 requires-python = ">=3.9"

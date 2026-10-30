@@ -5,8 +5,8 @@ type: software
 authors:
   - family-names: Banerjee
     given-names: Dipanjan
-version: 1.0.0
-date-released: 2026-10-29
+version: 1.1.0
+date-released: 2026-10-30
 repository-code: "https://github.com/dipanjanbanerjee/gpstec"
 url: "https://pypi.org/project/gpstec/"
 keywords:
