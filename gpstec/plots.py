@@ -194,10 +194,16 @@ def _gim_label(attrs):
     return f"CODE global map ({every}{grid})"
 
 
+def _main_col(series):
+    """The station curve to draw: the gradient-corrected fit when present, else the bin means."""
+    if "vtec_smooth" in series and series["vtec_smooth"].notna().any():
+        return "vtec_smooth"
+    return "vtec"
+
+
 def plot_day(d, series, station, settings, path, title_extra="", return_fig=False, gim_hourly=None):
-    """One day, measured values only: every satellite's VTEC at the receiver's own
-    sampling, the per-bin mean of the satellites, and the CODE map at its map epochs.
-    Nothing is interpolated or smoothed between points."""
+    """One day: every satellite's VTEC at the receiver sampling, the 1-min mean of the
+    satellites, the gradient-corrected station VTEC, and the CODE map at its map epochs."""
     day = np.datetime64(series["date"].iloc[0], "D")
     el = settings.output_elevation
     s = d[(d["el"] >= el) & (d["time"] >= day) & (d["time"] < day + np.timedelta64(1, "D"))]
@@ -220,25 +226,29 @@ def plot_day(d, series, station, settings, path, title_extra="", return_fig=Fals
                 ax.plot(hh, vv, color=SAT_GRAY, lw=0.6, zorder=1, solid_capstyle="round", rasterized=True)
 
         x = series["ut_hour"].to_numpy() + binm / 120.0           # centre of each bin
-        m = series["vtec"].to_numpy()
-        handles = [Line2D([], [], color=SAT_GRAY, lw=1.2,
-                          label=f"Each satellite ≥ {el:g}°, every {_fmt_s(dt_rx)} measurement"),
-                   Line2D([], [], color=BLUE, lw=1.4, label=f"Station VTEC, {binm:g}-min mean of the satellites")]
+        raw = series["vtec"].to_numpy()
+        col = _main_col(series)
+        m = series[col].to_numpy()
+        handles = [Line2D([], [], color=SAT_GRAY, lw=1.2, label=f"Each satellite ≥ {el:g}° (every {_fmt_s(dt_rx)})")]
+        if col == "vtec_smooth":
+            ax.plot(x, raw, color=INK2, lw=0.6, zorder=2)
+            handles.append(Line2D([], [], color=INK2, lw=0.8, label=f"Mean of satellites ({binm:g} min)"))
         if "vtec_uncertainty" in series and series["vtec_uncertainty"].notna().any():
             u = series["vtec_uncertainty"].to_numpy()
             ax.fill_between(x, m - u, m + u, color=BLUE_LIGHT, lw=0, zorder=2)
             handles.append(matplotlib.patches.Patch(color=BLUE_LIGHT,
                                                     label=f"Calibration uncertainty (±{np.nanmax(u):.1f} TECU)"))
-        ax.plot(x, m, color=BLUE, lw=1.4, zorder=4)
-        if getattr(settings, "smooth_curve", False) and "vtec_smooth" in series:
-            ax.plot(x, series["vtec_smooth"], color=INK, lw=0.9, ls=(0, (1, 1.5)), zorder=5)
-            handles.append(Line2D([], [], color=INK, lw=0.9, ls=(0, (1, 1.5)),
-                                  label=f"Spline model (knots every {settings.smooth_knot_min:g} min)"))
         gx, gy, gattr = _gim_points(series, gim_hourly)
         if gx is not None:
-            ax.plot(gx, gy, "D", ms=3.6, color=ORANGE, mec=SURFACE, mew=0.6, ls="none", zorder=6)
-            handles.append(Line2D([], [], marker="D", ms=4, color=ORANGE, mec=SURFACE, ls="none",
+            ax.plot(gx, gy, color=ORANGE, lw=1.0, ls=(0, (4, 2)), marker="o", ms=2.8, zorder=3)
+            handles.append(Line2D([], [], color=ORANGE, lw=1.0, ls=(0, (4, 2)), marker="o", ms=3,
                                   label=_gim_label(gattr)))
+        ax.plot(x, m, color=BLUE, lw=2.0, zorder=4)
+        if col == "vtec_smooth":
+            handles.append(Line2D([], [], color=BLUE, lw=2.0,
+                                  label=f"Station VTEC (gradient-corrected fit, {settings.smooth_knot_min:g}-min knots)"))
+        else:
+            handles.append(Line2D([], [], color=BLUE, lw=2.0, label=f"Station VTEC (mean of satellites, {binm:g} min)"))
 
         vals = np.r_[m[np.isfinite(m)], s["vtec"].to_numpy() if len(s) else [],
                      gy[np.isfinite(gy)] if gx is not None else [], 10.0]
@@ -251,7 +261,7 @@ def plot_day(d, series, station, settings, path, title_extra="", return_fig=Fals
         if np.isfinite(m).any():
             i = int(np.nanargmax(m))
             ax.plot([x[i]], [m[i]], "o", ms=3.5, color=BLUE, mec=SURFACE, mew=1, zorder=7)
-            ax.annotate(f"{m[i]:.1f} TECU, {x[i]:.2f} UT", (x[i], m[i]), xytext=(6, 5),
+            ax.annotate(f"{m[i]:.1f} TECU, {x[i]:.1f} UT", (x[i], m[i]), xytext=(6, 5),
                         textcoords="offset points", ha="left" if x[i] < 18 else "right",
                         color=INK, fontsize=7.5, path_effects=HALO, zorder=8)
         ax.tick_params(labelbottom=False)
@@ -271,6 +281,54 @@ def plot_day(d, series, station, settings, path, title_extra="", return_fig=Fals
     return save(fig, path, settings)
 
 
+def plot_stec_day(d, day, station, settings, path, return_fig=False):
+    """One day of slant TEC: every satellite at the receiver sampling, with its elevation."""
+    day = np.datetime64(day, "D")
+    el = settings.output_elevation
+    s = d[(d["time"] >= day) & (d["time"] < day + np.timedelta64(1, "D")) & d["stec"].notna()]
+    dt_rx = _interval_s(s["time"]) if len(s) else np.nan
+    gap_h = max(2 / 60, 3 * dt_rx / 3600) if np.isfinite(dt_rx) else 2 / 60
+    fig = _fig(settings, 0.72)
+    with plt.rc_context(RC):
+        gs = fig.add_gridspec(2, 1, height_ratios=[3, 1.3])
+        ax = fig.add_subplot(gs[0])
+        bx = fig.add_subplot(gs[1], sharex=ax)
+        _style(ax)
+        _style(bx)
+        for k, (prn, g) in enumerate(s.groupby("prn")):
+            c = SERIES[k % len(SERIES)]
+            h = (g["time"] - day).dt.total_seconds().to_numpy() / 3600
+            brk = np.where(np.diff(h) > gap_h)[0] + 1
+            y_all, e_all = g["stec"].to_numpy(), g["el"].to_numpy()
+            for hh, yy, ee in zip(np.split(h, brk), np.split(y_all, brk), np.split(e_all, brk)):
+                hi = ee >= el
+                ax.plot(hh, yy, color=GRID, lw=0.8, zorder=1, rasterized=True)
+                ax.plot(hh, np.where(hi, yy, np.nan), color=c, lw=0.9, zorder=2, rasterized=True)
+                bx.plot(hh, np.where(hi, ee, np.nan), color=c, lw=0.9, rasterized=True)
+                bx.plot(hh, ee, color=GRID, lw=0.8, zorder=0, rasterized=True)
+        ax.set_ylabel("Slant TEC (TECU)", color=INK)
+        ax.set_ylim(bottom=min(0.0, float(np.nanmin(s["stec"])) if len(s) else 0.0))
+        ax.axhline(0, color=INK2, lw=0.6, zorder=1)
+        ax.tick_params(labelbottom=False)
+        _hour_axis(ax, station.utc_offset_h)
+        _title(ax, settings, f"{station.name.upper()}   {day}   Slant TEC of each satellite (calibrated)")
+        bx.axhline(el, color=INK2, lw=0.7, ls=(0, (3, 2)))
+        bx.set_ylim(0, 90)
+        bx.set_yticks([0, 30, 60, 90])
+        bx.set_ylabel("Elevation (°)", color=INK)
+        bx.set_xlabel("Universal time (h)", color=INK)
+        bx.set_xlim(0, 24)
+        handles = [Line2D([], [], color=SERIES[0], lw=1.2, label=f"Satellite at ≥ {el:g}° (colour = satellite)"),
+                   Line2D([], [], color=GRID, lw=1.6, label=f"Same satellite below {el:g}° (not used for VTEC)"),
+                   Line2D([], [], color=INK2, lw=0.8, ls=(0, (3, 2)), label=f"{el:g}° cut-off"),
+                   Line2D([], [], color="none", label=f"Every {_fmt_s(dt_rx)} measurement")]
+        _legend(fig, handles, ncol=2)
+        fig.align_ylabels([ax, bx])
+    if return_fig:
+        return fig
+    return save(fig, path, settings)
+
+
 # ───────────────────────────── multi-day figures ─────────────────────────────
 def plot_overlay(all_series, station, settings, path, return_fig=False):
     """Station VTEC of several days on one 0-24 UT axis."""
@@ -284,12 +342,12 @@ def plot_overlay(all_series, station, settings, path, return_fig=False):
         for i, day in enumerate(days):
             s = all_series[all_series["date"].astype(str) == day]
             color = SAT_GRAY if many else SERIES[i]
-            ax.plot(s["ut_hour"] + settings.bin_minutes / 120.0, s["vtec"], color=color,
+            ax.plot(s["ut_hour"] + settings.bin_minutes / 120.0, s[_main_col(all_series)], color=color,
                     lw=1.0 if many else 1.5)
             if not many:
                 handles.append(Line2D([], [], color=color, lw=1.5, label=day))
         if many:
-            piv = all_series.pivot_table(index="ut_hour", columns="date", values="vtec")
+            piv = all_series.pivot_table(index="ut_hour", columns="date", values=_main_col(all_series))
             ax.plot(piv.index, piv.mean(axis=1), color=BLUE, lw=2)
             handles = [Line2D([], [], color=SAT_GRAY, lw=1, label="Individual days"),
                        Line2D([], [], color=BLUE, lw=2, label=f"Mean of {len(days)} days")]
@@ -298,7 +356,7 @@ def plot_overlay(all_series, station, settings, path, return_fig=False):
         ax.set_xlabel("Universal time (h)", color=INK)
         ax.set_ylabel("VTEC (TECU)", color=INK)
         _title(ax, settings, f"{station.name.upper()}   {days[0]} to {days[-1]}   Vertical TEC, elevation ≥ "
-                             f"{settings.output_elevation:g}°, {settings.bin_minutes:g}-min means")
+                             f"{settings.output_elevation:g}°")
         _legend(fig, handles, ncol=1, loc="outside right upper")
     if return_fig:
         return fig
@@ -307,7 +365,7 @@ def plot_overlay(all_series, station, settings, path, return_fig=False):
 
 def plot_heatmap(all_series, station, settings, path, return_fig=False):
     """Day × UT map of station VTEC (gaps blank)."""
-    piv = all_series.pivot_table(index="date", columns="ut_hour", values="vtec", dropna=False)
+    piv = all_series.pivot_table(index="date", columns="ut_hour", values=_main_col(all_series), dropna=False)
     n = len(piv)
     fig = _fig(settings, min(1.2, 0.18 + 0.055 * n + 0.12))
     with plt.rc_context(RC):
@@ -330,8 +388,7 @@ def plot_heatmap(all_series, station, settings, path, return_fig=False):
         cb.set_label("VTEC (TECU)", color=INK)
         cb.ax.tick_params(colors=INK2)
         cb.outline.set_visible(False)
-        _title(ax, settings, f"{station.name.upper()}   Vertical TEC by day, elevation ≥ {settings.output_elevation:g}°, "
-                             f"{settings.bin_minutes:g}-min bins")
+        _title(ax, settings, f"{station.name.upper()}   Vertical TEC by day, elevation ≥ {settings.output_elevation:g}°")
     if return_fig:
         return fig
     return save(fig, path, settings)
@@ -371,12 +428,60 @@ def plot_ipp_map(d, station, settings, path, day, return_fig=False):
     return save(fig, path, settings)
 
 
+DAY_COLORS = [BLUE, ORANGE]
+
+
+def _days_axis(ax, days, d0):
+    """Continuous multi-day time axis: day labels at noon, dotted lines at midnight UT."""
+    nd = len(days)
+    step = max(1, int(np.ceil(nd / 10)))
+    for k in range(1, nd):
+        ax.axvline(24 * k, color=INK2, lw=0.6, ls=(0, (1, 2)), zorder=1)
+    ax.set_xlim(0, 24 * nd)
+    ax.set_xticks([24 * k + 12 for k in range(0, nd, step)])
+    ax.set_xticks([24 * k for k in range(nd + 1)], minor=True)
+    ax.tick_params(axis="x", which="major", length=0)
+    ax.set_xticklabels([days[k][5:] for k in range(0, nd, step)])
+    ax.grid(False, axis="x")
+
+
+def _jump_panel(bx, rows, days, key, tol_scale=1.0, label="Jump (TECU)"):
+    nd = len(days)
+    step = max(1, int(np.ceil(nd / 10)))
+    xs, js, tol, col = [], [], [], []
+    for r in rows:
+        if r.get(key) is None or r["next_date"] not in days:
+            continue
+        t = r["tolerance_tecu"] * tol_scale
+        xs.append(24 * days.index(r["next_date"]))
+        js.append(r[key])
+        tol.append(t)
+        col.append(BLUE if abs(r[key]) <= t else RED)
+    for x, t in zip(xs, tol):
+        bx.fill_between([x - 2.5, x + 2.5], -t, t, color=BLUE_LIGHT, lw=0, zorder=1)
+    bx.scatter(xs, js, s=26, c=col, edgecolors=SURFACE, linewidths=0.8, zorder=3)
+    if nd <= 12:
+        for x, j in zip(xs, js):
+            bx.annotate(f"{j:+.1f}", (x, j), xytext=(7, 0), textcoords="offset points", va="center",
+                        fontsize=7.5, color=INK, zorder=4)
+    lim = max(3.0, 1.35 * max([abs(v) for v in js] + tol)) if js else 3.0
+    bx.set_ylim(-lim, lim)
+    bx.axhline(0, color=INK2, lw=0.6)
+    bx.yaxis.set_major_locator(MaxNLocator(nbins=4, symmetric=True))
+    bx.set_ylabel(label, color=INK)
+    bx.set_xticks([24 * k for k in range(1, nd, step)])
+    bx.set_xticklabels([f"{days[k][5:]} 00 UT" for k in range(1, nd, step)], fontsize=7.5)
+    bx.grid(False, axis="x")
+    bx.set_xlim(0, 24 * nd)
+
+
 def plot_continuity(all_series, rows, station, settings, path, return_fig=False):
-    """All days on one continuous time axis, plus the VTEC jump found at each midnight."""
+    """All days on one continuous time axis (alternate colours = separate days), the CODE map,
+    and the VTEC jump at each midnight seen by the same satellites."""
     days = sorted(all_series["date"].astype(str).unique())
     nd = len(days)
     d0 = np.datetime64(days[0])
-    step = max(1, int(np.ceil(nd / 10)))
+    col = _main_col(all_series)
     fig = _fig(settings, 0.62)
     with plt.rc_context(RC):
         gs = fig.add_gridspec(2, 1, height_ratios=[3, 1.25])
@@ -385,61 +490,110 @@ def plot_continuity(all_series, rows, station, settings, path, return_fig=False)
         _style(ax)
         _style(bx)
         have_gim = "vtec_gim" in all_series and all_series["vtec_gim"].notna().any()
-        for day in days:
+        for k, day in enumerate(days):
             s = all_series[all_series["date"].astype(str) == day]
-            x = (np.datetime64(day) - d0).astype("timedelta64[h]").astype(float) + s["ut_hour"].to_numpy()
-            ax.plot(x, s["vtec"], color=BLUE, lw=1.0, zorder=3)
-            if have_gim and "vtec_gim" in s and s["vtec_gim"].notna().any():
+            x = (np.datetime64(day) - d0).astype("timedelta64[h]").astype(float) + s["ut_hour"].to_numpy() \
+                + settings.bin_minutes / 120.0
+            if have_gim and s["vtec_gim"].notna().any():
                 g = s["vtec_gim"].notna().to_numpy()
-                ax.plot(x[g], s["vtec_gim"].to_numpy()[g], "D", ms=2.6, color=ORANGE, mec=SURFACE, mew=0.4,
-                        ls="none", zorder=4)
-        for k in range(1, nd):
-            for a in (ax, bx):
-                a.axvline(24 * k, color=INK2, lw=0.5, ls=(0, (1, 2)), zorder=1)
-        ax.set_xlim(0, 24 * nd)
+                ax.plot(x[g], s["vtec_gim"].to_numpy()[g], color=INK2, lw=0.9, ls=(0, (4, 2)), zorder=2)
+            ax.plot(x, s[col], color=DAY_COLORS[k % 2], lw=1.6, zorder=3)
+        _days_axis(ax, days, d0)
         ax.set_ylim(bottom=0)
-        ax.set_xticks([24 * k + 12 for k in range(0, nd, step)])
-        ax.set_xticks([24 * k for k in range(nd + 1)], minor=True)
-        ax.tick_params(axis="x", which="major", length=0)
-        ax.set_xticklabels([days[k][5:] for k in range(0, nd, step)])
-        ax.grid(False, axis="x")
         ax.set_ylabel("VTEC (TECU)", color=INK)
-        _title(ax, settings, f"{station.name.upper()}   Day-to-day continuity, elevation ≥ {settings.output_elevation:g}°")
-
-        xs, js, tol, col = [], [], [], []
-        for r in rows:
-            if r.get("jump_median_el30") is None or r["next_date"] not in days:
-                continue
-            xs.append(24 * days.index(r["next_date"]))
-            js.append(r["jump_median_el30"])
-            tol.append(r["tolerance_tecu"])
-            col.append(BLUE if r["status"] == "OK" else RED)
-        for x, t in zip(xs, tol):
-            bx.fill_between([x - 2.5, x + 2.5], -t, t, color=BLUE_LIGHT, lw=0, zorder=1)
-        bx.scatter(xs, js, s=22, c=col, edgecolors=SURFACE, linewidths=0.8, zorder=3)
-        if nd <= 12:
-            for x, j in zip(xs, js):
-                bx.annotate(f"{j:+.1f}", (x, j), xytext=(7, 0), textcoords="offset points", va="center",
-                            fontsize=7.5, color=INK, zorder=4)
-        lim = max(3.0, 1.35 * max([abs(v) for v in js] + tol)) if js else 3.0
-        bx.set_ylim(-lim, lim)
-        bx.axhline(0, color=INK2, lw=0.6)
-        bx.yaxis.set_major_locator(MaxNLocator(nbins=4, symmetric=True))
-        bx.set_ylabel("Jump\n(TECU)", color=INK)
-        bx.set_xticks([24 * k for k in range(1, nd, step)])
-        bx.set_xticklabels([days[k][5:] for k in range(1, nd, step)])
-        bx.set_xlabel("Midnight UT (date of the new day)", color=INK)
-        bx.grid(False, axis="x")
-        bx.set_xlim(ax.get_xlim())
-        handles = [Line2D([], [], color=BLUE, lw=1.0, label=f"Station VTEC, {settings.bin_minutes:g}-min means")]
+        _title(ax, settings, f"{station.name.upper()}   Day-to-day continuity, elevation ≥ "
+                             f"{settings.output_elevation:g}°   (dotted lines = midnight UT)")
+        _jump_panel(bx, rows, days, "jump_median_el30", label="Jump at\nmidnight (TECU)")
+        bx.set_xlabel("Next day's first value minus previous day's last value, same satellites", color=INK)
+        what = (f"gradient-corrected fit, {settings.smooth_knot_min:g}-min knots" if col == "vtec_smooth"
+                else f"mean of satellites, {settings.bin_minutes:g} min")
+        handles = [Line2D([], [], color=BLUE, lw=1.6, label=f"Station VTEC ({what}); colours alternate by day"),
+                   ]
         if have_gim:
-            handles.append(Line2D([], [], marker="D", ms=3.5, color=ORANGE, mec=SURFACE, ls="none",
-                                  label="CODE global map, hourly maps"))
-        handles += [Line2D([], [], marker="o", ls="none", color=BLUE, ms=5, label="Midnight jump, within uncertainty"),
-                    Line2D([], [], marker="o", ls="none", color=RED, ms=5, label="Midnight jump, outside it"),
+            handles.append(Line2D([], [], color=INK2, lw=0.9, ls=(0, (4, 2)), label="CODE global map (hourly maps)"))
+        handles += [Line2D([], [], marker="o", ls="none", color=BLUE, ms=5, label="Jump within calibration uncertainty"),
+                    Line2D([], [], marker="o", ls="none", color=RED, ms=5, label="Jump outside it"),
                     matplotlib.patches.Patch(color=BLUE_LIGHT, label="Calibration uncertainty")]
-        _legend(fig, handles, ncol=3)
+        _legend(fig, handles, ncol=2)
         fig.align_ylabels([ax, bx])
+    if return_fig:
+        return fig
+    return save(fig, path, settings)
+
+
+def plot_stec_continuity(stec, rows, station, settings, path, return_fig=False):
+    """Slant TEC of every satellite above the cut-off over all days on one time axis,
+    plus the slant-TEC jump at each midnight (same satellites)."""
+    days = sorted(stec["date"].astype(str).unique())
+    d0 = np.datetime64(days[0])
+    el = settings.output_elevation
+    fig = _fig(settings, 0.62)
+    with plt.rc_context(RC):
+        gs = fig.add_gridspec(2, 1, height_ratios=[3, 1.25])
+        ax = fig.add_subplot(gs[0])
+        bx = fig.add_subplot(gs[1])
+        _style(ax)
+        _style(bx)
+        s = stec[stec["el"] >= el]
+        x_all = (s["time"].to_numpy() - d0) / np.timedelta64(1, "h")
+        dt = _interval_s(s["time"]) if len(s) else np.nan
+        for k, day in enumerate(days):
+            m = (s["date"].astype(str) == day).to_numpy()
+            for prn, g in s[m].groupby("prn"):
+                x = x_all[m][(s[m]["prn"] == prn).to_numpy()]
+                y = g["stec"].to_numpy()
+                brk = np.where(np.diff(x) > 0.1)[0] + 1
+                for xx, yy in zip(np.split(x, brk), np.split(y, brk)):
+                    ax.plot(xx, yy, color=DAY_COLORS[k % 2], lw=0.8, zorder=2, rasterized=True)
+        _days_axis(ax, days, d0)
+        ax.set_ylim(bottom=0)
+        ax.set_ylabel("Slant TEC (TECU)", color=INK)
+        _title(ax, settings, f"{station.name.upper()}   Slant TEC of each satellite ≥ {el:g}°, all days   "
+                             f"(dotted lines = midnight UT)")
+        _jump_panel(bx, rows, days, "stec_jump_median", tol_scale=1 / 0.9, label="STEC jump at\nmidnight (TECU)")
+        bx.set_xlabel("Next day's first value minus previous day's last value, same satellites", color=INK)
+        handles = [Line2D([], [], color=BLUE, lw=1.2, label=f"Each satellite (every {_fmt_s(dt)}); colours alternate by day"),
+                   Line2D([], [], marker="o", ls="none", color=BLUE, ms=5, label="Jump within calibration uncertainty"),
+                   Line2D([], [], marker="o", ls="none", color=RED, ms=5, label="Jump outside it")]
+        _legend(fig, handles, ncol=2)
+        fig.align_ylabels([ax, bx])
+    if return_fig:
+        return fig
+    return save(fig, path, settings)
+
+
+def plot_stec_overlay(stec, station, settings, path, return_fig=False):
+    """Slant TEC of every satellite above the cut-off, each day in its own colour on 0-24 UT."""
+    days = sorted(stec["date"].astype(str).unique())
+    el = settings.output_elevation
+    many = len(days) > len(SERIES)
+    fig = _fig(settings, 0.52)
+    with plt.rc_context(RC):
+        ax = fig.add_subplot()
+        _style(ax)
+        s = stec[stec["el"] >= el]
+        dt = _interval_s(s["time"]) if len(s) else np.nan
+        handles = []
+        for i, day in enumerate(days):
+            c = SAT_GRAY if many else SERIES[i]
+            g0 = s[s["date"].astype(str) == day]
+            day0 = np.datetime64(day, "D")
+            for prn, g in g0.groupby("prn"):
+                h = (g["time"].to_numpy() - day0) / np.timedelta64(1, "h")
+                brk = np.where(np.diff(h) > 0.1)[0] + 1
+                for hh, yy in zip(np.split(h, brk), np.split(g["stec"].to_numpy(), brk)):
+                    ax.plot(hh, yy, color=c, lw=0.7, rasterized=True)
+            if not many:
+                handles.append(Line2D([], [], color=c, lw=1.5, label=day))
+        if many:
+            handles = [Line2D([], [], color=SAT_GRAY, lw=1, label="All days")]
+        handles.append(Line2D([], [], color="none", label=f"each satellite, every {_fmt_s(dt)}"))
+        _hour_axis(ax, station.utc_offset_h)
+        ax.set_ylim(bottom=0)
+        ax.set_xlabel("Universal time (h)", color=INK)
+        ax.set_ylabel("Slant TEC (TECU)", color=INK)
+        _title(ax, settings, f"{station.name.upper()}   {days[0]} to {days[-1]}   Slant TEC, elevation ≥ {el:g}°")
+        _legend(fig, handles, ncol=1, loc="outside right upper")
     if return_fig:
         return fig
     return save(fig, path, settings)

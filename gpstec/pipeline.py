@@ -310,7 +310,7 @@ def run(inputs, station, settings, out_dir, nav=None, sp3=None, log=print, write
         r[1] = info
         del d
 
-    all_series, summary, bounds = [], [], []
+    all_series, summary, bounds, stec_all = [], [], [], []
     for k, (tmp, info, sat_bias, source, b_rx, how) in enumerate(resolved):
         d = pd.read_pickle(tmp)
         pads = []
@@ -327,6 +327,11 @@ def run(inputs, station, settings, out_dir, nav=None, sp3=None, log=print, write
         n0 = len(summary)
         series = _write_days(d, info, station, settings, out_dir, write_cmn, summary, log)
         all_series += series
+        # slant TEC for the multi-day figures: every 10th second keeps the files small
+        secs = (d["time"] - d["time"].dt.floor("D")).dt.total_seconds().round().astype(int)
+        st = d.loc[(secs % 10 == 0) & (d["el"] >= settings.output_elevation), ["time", "prn", "el", "stec"]].copy()
+        st["date"] = st["time"].dt.floor("D").dt.strftime("%Y-%m-%d")
+        stec_all.append(st)
         if series:
             bounds.append({"edges": continuity.edges(d), "b_rx": info["receiver_bias_tecu"],
                            "first": (str(summary[n0]["date"]), series[0]),
@@ -335,7 +340,7 @@ def run(inputs, station, settings, out_dir, nav=None, sp3=None, log=print, write
         del d
     for r in resolved:
         r[0].unlink()
-    _continuity_report(bounds, summary, all_series, station, settings, out_dir, log)
+    rows = _continuity_report(bounds, summary, all_series, station, settings, out_dir, log)
     try:
         work.rmdir()
     except OSError:
@@ -347,6 +352,16 @@ def run(inputs, station, settings, out_dir, nav=None, sp3=None, log=print, write
         if allv["date"].nunique() > 1:
             plots.plot_overlay(allv, station, settings, out_dir / f"{station.name}_vtec_overlay.png")
             plots.plot_heatmap(allv, station, settings, out_dir / f"{station.name}_vtec_heatmap.png")
+        if stec_all:
+            st = pd.concat(stec_all, ignore_index=True)
+            st = st[st["date"].isin(set(allv["date"].astype(str)))]      # only the processed days
+            if st["date"].nunique() > 1:
+                try:
+                    plots.plot_stec_overlay(st, station, settings, out_dir / f"{station.name}_stec_overlay.png")
+                    plots.plot_stec_continuity(st, rows or [], station, settings,
+                                               out_dir / f"{station.name}_stec_continuity.png")
+                except Exception as e:                      # a plot must never stop the run
+                    log(f"  STEC multi-day plots skipped ({type(e).__name__}: {e})")
         pd.DataFrame([{k: v for k, v in s.items() if k in
                        ("date", "file", "code_used", "sat_bias_source", "receiver_bias_tecu",
                         "receiver_bias_method", "peak_vtec", "coverage_fraction", "negative_vtec_fraction",
@@ -417,6 +432,7 @@ def _continuity_report(bounds, summary, all_series, station, settings, out_dir, 
             plots.plot_continuity(pd.concat(all_series, ignore_index=True), rows, station, settings, out_dir / f"{station.name}_midnight_continuity.png")
         except Exception as e:                              # a plot must never stop the run
             log(f"  continuity plot skipped ({type(e).__name__}: {e})")
+    return rows
 
 
 def _write_days(d, info, station, settings, out_dir, write_cmn, summary, log):
@@ -461,14 +477,17 @@ def _write_days(d, info, station, settings, out_dir, write_cmn, summary, log):
             products.write_cmn_like(dd, day_dir / f"{tag}.Cmn", station, settings, source=info["file"])
         plots.plot_day(d, s, station, settings, day_dir / f"{tag}_vtec.png", gim_hourly=gim_hourly)
         plots.plot_ipp_map(d, station, settings, day_dir / f"{tag}_pierce_points.png", day)
+        plots.plot_stec_day(d, day, station, settings, day_dir / f"{tag}_stec.png")
         out.append(s)
         extra = {}
+        main_col = "vtec_smooth" if "vtec_smooth" in s and s["vtec_smooth"].notna().any() else "vtec"
         if "vtec_gim" in s:
             # compare at the map epochs only: 1-min station value at hh:00 vs that map
             lt = (s["ut_hour"] + station.utc_offset_h) % 24
             a, b = settings.calib_night_lt or [22.0, 6.0]
             night = (lt >= a) | (lt < b)
-            dif = (s["vtec"] - s["vtec_gim"])[night]
+            main = "vtec_smooth" if "vtec_smooth" in s else "vtec"
+            dif = (s[main] - s["vtec_gim"])[night]
             extra["night_minus_gim_tecu"] = float(np.nanmedian(dif)) if dif.notna().any() else None
             if extra["night_minus_gim_tecu"] is not None:
                 log(f"  {day}: station VTEC minus CODE GIM at night (hourly maps) = "
@@ -476,8 +495,8 @@ def _write_days(d, info, station, settings, out_dir, write_cmn, summary, log):
         if s["vtec_uncertainty"].notna().any():
             extra["calibration_uncertainty_tecu"] = float(s["vtec_uncertainty"].iloc[0])
         day_info = dict({k: v for k, v in info.items() if not k.startswith("_")}, **extra, date=str(day),
-                        peak_vtec=float(np.nanmax(s["vtec"])) if s["vtec"].notna().any() else None,
-                        peak_ut_hour=float(s["ut_hour"].iloc[int(np.nanargmax(s["vtec"]))]) if s["vtec"].notna().any() else None,
+                        peak_vtec=float(np.nanmax(s[main_col])) if s[main_col].notna().any() else None,
+                        peak_ut_hour=float(s["ut_hour"].iloc[int(np.nanargmax(s[main_col]))]) if s[main_col].notna().any() else None,
                         time_resolution={"receiver_s": info.get("obs_interval_s"),
                                          "station_vtec_bin_min": settings.bin_minutes},
                         coverage_fraction=float(s["vtec"].notna().mean()))

@@ -57,7 +57,7 @@ class Settings:
     bin_minutes: float = 1.0
     clip_sigma: float = 2.0             # outlier clipping inside each bin
     min_sats_per_bin: int = 1
-    smooth_curve: bool = False          # also fit the gradient-corrected spline curve (a model, not data)
+    smooth_curve: bool = True           # gradient-corrected least-squares fit of all satellites (main curve)
     smooth_knot_min: float = 60.0       # spacing of that spline curve (minutes)
     # figures
     figure_formats: list = field(default_factory=lambda: ["png", "pdf"])  # also "svg", "eps", "tiff"

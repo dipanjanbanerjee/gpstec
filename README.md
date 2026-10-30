@@ -60,21 +60,20 @@ Satellite bias files (CODE `.DCB`) and global ionosphere maps (CODE IONEX) are d
    - `B_rx` is estimated for each day from that day's night-time data alone. It is a least-squares fit of `STEC = VTEC(t, pierce point)/M(el) − B_rx`, in which VTEC may vary north–south and east–west. That matters near the anomaly crest, where minimum-scatter methods drift.
    - Safety rule (`enforce_nonnegative`): if the estimated `B_rx` would make VTEC negative, it is raised to the smallest value that keeps 99.5 % of points ≥ 0. This shifts the whole day by one constant and is recorded in the calibration report. Individual values are never clipped. On 25–26 Dec 2022 the rule was not needed.
 5. **VTEC.** `VTEC = STEC · √(1 − (Re·cos E / (Re + h))²)`, using only satellites above the elevation cut-off.
-6. **Station VTEC.** In each 1-min bin, each satellite's 1 s values are averaged first. Then the mean over the satellites is taken, with 2σ outlier rejection. Bins with no satellite above the cut-off stay empty and are never filled. The curve can step when a satellite rises or sets, because each satellite sees the ionosphere at its own pierce point. An optional gradient-corrected spline model (`smooth_curve = true`) can be drawn as well. It is a model, not data, and is off by default.
+6. **Station VTEC curve.** All satellites at or above the cut-off are fitted together by weighted least squares: `VTEC_sat(t) = V0(t) + Gn(t)·Δlat + Ge(t)·Δlon`. Here V0, Gn and Ge are cubic B-splines with knots every 60 min (`smooth_knot_min`) and a curvature penalty. V0 is the VTEC above the station. The curve does not jump when a satellite rises or sets, because the north–south and east–west gradients are fitted rather than averaged into V0. No data are invented: times more than 30 min from any measurement are left empty. The plain 1-min mean of the satellites is also kept and plotted as a thin line.
 
 ## Time and space resolution
 
-Nothing is interpolated in time. Every plotted point is a measured value or a plain average of measured values.
-
 | Quantity | Interval | Where |
 |---|---|---|
-| Receiver observations (GPStation-6, RINEX) | **1 s** (as recorded; printed in the run log) | input |
-| Slant/vertical TEC of each satellite | **1 s**, every point at elevation ≥ 10° kept, no averaging | `.Cmn`, grey lines on the daily plot |
-| Station VTEC | **1 min** mean of the 1 s values of the satellites ≥ 50° (`bin_minutes`) | `_vtec_1min.csv` `vtec`, `.Std`, blue line |
-| CODE global ionosphere map | **1 h** (one map per hour, 00–24 UT), **2.5° lat × 5° lon** grid, shell 450 km | `_gim_hourly.csv`, orange diamonds |
-| Pierce points | **1 s** | pierce-point map |
+| Receiver observations (GPStation-6, RINEX) | **1 s** (printed in the run log) | input |
+| Slant/vertical TEC of each satellite | **1 s**; every point at elevation ≥ 10° is kept, with no averaging | `.Cmn`, grey lines on the daily plots, daily STEC plot |
+| Mean of the satellites | **1 min** bins of the 1 s values (elevation ≥ 50°) | `_vtec_1min.csv` column `vtec`, thin dark line |
+| Station VTEC curve | fit to the 1 s data taken every 30 s, knots every **60 min**, written every 1 min | `vtec_smooth`, `.Std`, thick blue line |
+| CODE global ionosphere map | **1 h** (25 maps per day, 00–24 UT), **2.5° lat × 5° lon** grid, shell 450 km | `_gim_hourly.csv` (25 rows), orange dots joined by a dashed line |
+| Multi-day STEC figures | every 10 s of the 1 s data | `STAT_stec_overlay`, `STAT_stec_continuity` |
 
-The CODE value is taken only at the published map epochs. There are no values between the hours. At the station it is the bilinear value from the four surrounding grid nodes (`gim_station = "bilinear"`, the IONEX convention), or the nearest node with `gim_station = "nearest"`. With a 50° cut-off at 350 km, the station's pierce points lie within about 2.5° (about 270 km) of the station.
+The CODE value at the station is the bilinear value from the four surrounding grid nodes (`gim_station = "bilinear"`, the IONEX convention), or the nearest node with `gim_station = "nearest"`. Only the published hourly maps are used. With a 50° cut-off at 350 km, the station's pierce points lie within about 2.5° (about 270 km) of the station.
 
 ## Checks you get for every day
 
@@ -90,17 +89,19 @@ Per day, in `results/YYYY-MM-DD/`:
 
 | File | Content |
 |---|---|
-| `STAT_DATE_vtec_1min.csv` | UT (start of each 1-min bin), station VTEC (1-min mean of satellites), std, satellite count, 1 s samples in the bin, uncertainty, GIM VTEC (filled only at hh:00) |
+| `STAT_DATE_vtec_1min.csv` | UT (start of each 1-min bin), 1-min mean of satellites, std, satellite count, station VTEC curve, N/E gradients, uncertainty, GIM VTEC (filled only at hh:00) |
 | `STAT_DATE_gim_hourly.csv` | CODE map VTEC at the station, one row per hourly map |
-| `STAT_DATE.Std` | Gopi-style `.Std` (UT, 1-min station VTEC, std, latitude) |
+| `STAT_DATE.Std` | Gopi-style `.Std` (UT, station VTEC curve, std, latitude) |
 | `STAT_DATE.Cmn` | Gopi-style `.Cmn` with correct geometry (all elevations ≥ 10°) |
 | `STAT_DATE_vtec.pdf/.png` | daily figure |
+| `STAT_DATE_stec.pdf/.png` | slant TEC of every satellite (1 s) with its elevation |
 | `STAT_DATE_pierce_points.pdf/.png` | pierce-point map coloured by VTEC |
 | `STAT_DATE_calibration.json` | every bias, method, check and warning |
 
 For multi-day runs, `results/` also gets:
 - all days in one CSV;
-- an overlay figure, a day × UT map and the midnight continuity figure;
+- VTEC: an overlay figure, a day × UT map and the midnight continuity figure;
+- STEC: an overlay of all days and a continuity figure with the slant-TEC jump at each midnight;
 - `calibration_summary.csv` and `midnight_continuity.csv`.
 
 ## Figures

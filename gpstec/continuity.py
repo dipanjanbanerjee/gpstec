@@ -64,6 +64,7 @@ def compare(prev, nxt, el_out, mf_out=0.9):
         mf = float(np.median(np.r_[(a["vtec"] / a["stec"]).to_numpy()[-5:], (b["vtec"] / b["stec"]).to_numpy()[:5]]))
         per.append({"prn": int(prn), "el": round(el, 1), "vtec_end_prev": round(va, 2),
                     "vtec_start_next": round(vb, 2), "jump": round(vb - va, 2),
+                    "stec_jump": round((vb - va) / mf, 2) if mf > 0 else None,
                     "jump_from_rx_bias": round((nxt["b_rx"] - prev["b_rx"]) * mf, 2)})
     per = pd.DataFrame(per)
     res = {"boundary_ut": str(t_ref.floor("s")), "prev_date": prev["date"], "next_date": nxt["date"],
@@ -72,6 +73,7 @@ def compare(prev, nxt, el_out, mf_out=0.9):
     if len(per):
         hi = per[per["el"] >= el_out]
         res["jump_median_el30"] = round(float(per["jump"].median()), 2)
+        res["stec_jump_median"] = round(float(per["stec_jump"].dropna().median()), 2) if per["stec_jump"].notna().any() else None
         res["jump_spread_el30"] = round(float(per["jump"].std(ddof=0)), 2) if len(per) > 1 else 0.0
         res["n_sats_out"] = int(len(hi))
         res["jump_median_out"] = round(float(hi["jump"].median()), 2) if len(hi) else None

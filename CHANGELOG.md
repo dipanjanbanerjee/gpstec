@@ -2,12 +2,11 @@
 
 ## 1.1.0 (2026-10-30)
 
-- Plots show measured values only. The grey lines are every 1 s value of each satellite, the blue line is the 1-min mean of the satellites, and CODE GIM points are drawn only at its hourly map epochs. Nothing is interpolated in time.
-- The gradient-corrected spline curve is now optional (`smooth_curve = true`) and off by default. The `.Std` file, peak VTEC and the overlay, heatmap and continuity figures use the 1-min means.
-- New `STAT_DATE_gim_hourly.csv`. The `vtec_gim` column of the 1-min CSV is filled only at hh:00.
-- New `gim_station = "bilinear" | "nearest"`.
-- Legends and titles state the sampling interval of each series. The README has a time and space resolution table.
-- The run log and calibration report record the receiver sampling interval.
+- New slant TEC figures: one per day (every satellite at 1 s, with its elevation), an overlay of all days, and a continuity figure with the STEC jump at each midnight.
+- The continuity figure is redrawn: colours alternate by day, dotted lines mark midnight UT, and the lower panel shows the jump at each midnight against the calibration uncertainty.
+- CODE GIM uses only its published hourly maps (25 per day). They are drawn as dots joined by a dashed line, and the new `STAT_DATE_gim_hourly.csv` stores them. The `vtec_gim` column of the 1-min CSV is filled only at hh:00. The GIM receiver-bias check compares data within 2.5 min of a map epoch. New option `gim_station = "bilinear" | "nearest"`.
+- Legends, titles and the README state the time interval of every series. The receiver sampling interval is recorded in the log and in the calibration report.
+- `smooth_curve = true` (default) keeps the gradient-corrected station curve. Set it to `false` to use the plain 1-min mean instead.
 
 ## 1.0.0 (2026-10-29)
 

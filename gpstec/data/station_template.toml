@@ -43,8 +43,9 @@ gim_station = "bilinear"   # CODE map value at the station: "bilinear" (4 grid n
                            # (only the hourly maps are used, never values in between)
 
 bin_minutes = 1.0          # station VTEC = mean of the satellites in each bin of this length
-smooth_curve = false       # true: also fit and draw a gradient-corrected spline (a model, not data)
-smooth_knot_min = 60.0     # knot spacing of that spline (minutes)
+smooth_curve = true        # station VTEC = least-squares fit V0(t) + gradients to all satellites >= 50 deg
+                           # (false: plain mean of the satellites in each bin)
+smooth_knot_min = 60.0     # knot spacing of that fit in minutes (smaller = follows faster changes)
 clip_sigma = 2.0
 
 # Figures (publication quality: vector PDF + 300 dpi PNG by default)
