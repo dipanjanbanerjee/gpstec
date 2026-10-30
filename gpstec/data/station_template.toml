@@ -34,13 +34,18 @@ dcb_dir = "dcb"
 receiver_bias = "lsq"
 lsq_elevation = 20.0
 receiver_bias_multiday = "per_day"    # each day calibrated on its own ("median" = one value per run)
-enforce_nonnegative = true          # never let the receiver bias make VTEC negative
+enforce_nonnegative = true          # safety only: if the estimated receiver bias would make VTEC
+                                    # negative, raise it (one constant per day; values are never clipped)
 
 gim = "auto"               # CODE global ionosphere map as reference line + check ("off" to skip)
 gim_dir = "gim"
+gim_station = "bilinear"   # CODE map value at the station: "bilinear" (4 grid nodes) or "nearest" node
+                           # (only the hourly maps are used, never values in between)
 
-bin_minutes = 1.0
-smooth_knot_min = 60.0     # smoothness of the station VTEC curve (smaller = more detail)
+bin_minutes = 1.0          # station VTEC = mean of the satellites in each bin of this length
+smooth_curve = true        # station VTEC = least-squares fit V0(t) + gradients to all satellites >= 50 deg
+                           # (false: plain mean of the satellites in each bin)
+smooth_knot_min = 60.0     # knot spacing of that fit in minutes (smaller = follows faster changes)
 clip_sigma = 2.0
 
 # Figures (publication quality: vector PDF + 300 dpi PNG by default)

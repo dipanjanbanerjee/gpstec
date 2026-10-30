@@ -249,8 +249,8 @@ footer a { color: var(--muted); }
       </div>
       <div class="plates">
         <figure>
-          <div class="plate"><img src="images/daily_vtec.png" alt="Daily vertical TEC at station SKBU on 25 December 2022: grey satellite tracks, a smooth blue station curve peaking at 75.6 TECU at 7.6 UT, the CODE global map as an orange dashed line, and a satellite-count panel below." width="2160" height="1425" ></div>
-          <figcaption><b>Daily VTEC, SKBU, 25 December 2022.</b><span>Satellites above 50°, the gradient-corrected station curve with its calibration band, and the CODE global ionosphere map for comparison. UT below, local time above.</span></figcaption>
+          <div class="plate"><img src="images/daily_vtec.png" alt="Daily vertical TEC at station SKBU on 25 December 2022: grey 1 s satellite tracks, a smooth blue station curve peaking at 75.6 TECU at 7.6 UT, the hourly CODE global map values as orange dots, and a satellite-count panel below." width="2160" height="1425" ></div>
+          <figcaption><b>Daily VTEC, SKBU, 25 December 2022.</b><span>Satellites above 50° (1 s), their 1-minute mean, the gradient-corrected station curve with its calibration band, and the hourly CODE global ionosphere maps. UT below, local time above.</span></figcaption>
         </figure>
         <div class="pair">
           <figure>
@@ -299,7 +299,7 @@ gpstec run -c station.toml -o results skbu3590.22o --elev 40</pre></div>
         <h2>Numbers you can defend.</h2>
       </div>
       <ul class="checks">
-        <li><div><h3>1-minute VTEC table</h3><p>Mean of satellites, scatter, satellite count, smooth station VTEC, gradients and the global-map value, in CSV, plus Gopi-style .Std and .Cmn files.</p></div></li>
+        <li><div><h3>1-minute VTEC table</h3><p>1-minute mean of the satellites, scatter, satellite count and the hourly global-map values, in CSV, plus Gopi-style .Std and the full 1 s .Cmn file.</p></div></li>
         <li><div><h3>Calibration report</h3><p>Every bias, the method, the night-time difference from the CODE map, and warnings, in one JSON file per day.</p></div></li>
         <li><div><h3>Multi-day views</h3><p>All days overlaid, a day-by-hour map, and the midnight continuity figure with a summary table.</p></div></li>
       </ul>
@@ -312,7 +312,7 @@ gpstec run -c station.toml -o results skbu3590.22o --elev 40</pre></div>
         <p class="label">Citing</p>
         <h2>If gpstec helps your research, please cite it.</h2>
       </div>
-      <p class="cite" id="citation">Banerjee, D. (2026). gpstec: calibrated GPS total electron content from GPStation-6 receivers (version 1.0.0). https://github.com/dipanjanbanerjee/gpstec</p>
+      <p class="cite" id="citation">Banerjee, D. (2026). gpstec: calibrated GPS total electron content from GPStation-6 receivers (version 1.1.0). https://github.com/dipanjanbanerjee/gpstec</p>
       <p style="margin-top:1rem"><button type="button" data-copy="citation">Copy citation</button></p>
     </div>
   </section>

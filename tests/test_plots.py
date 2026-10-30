@@ -11,7 +11,8 @@ def _series(d, day, station, settings):
     for c in ("vtec_smooth", "grad_north", "grad_east"):
         s[c] = sm[c].to_numpy()
     s["vtec_uncertainty"] = 1.2
-    s["vtec_gim"] = s["vtec_smooth"] * 0.85 + 2
+    hourly = (np.round(s["ut_hour"] * 60) % 60) == 0
+    s["vtec_gim"] = np.where(hourly, s["vtec"] * 0.85 + 2, np.nan)
     return s
 
 
@@ -23,15 +24,20 @@ def test_figures_have_no_overlapping_text(tmp_path, station, settings):
         s = _series(d, day, station, settings)
         series.append(s)
         figs = [plots.plot_day(d, s, station, settings, None, return_fig=True),
+                plots.plot_stec_day(d, day, station, settings, None, return_fig=True),
                 plots.plot_ipp_map(d, station, settings, None, day, return_fig=True)]
         for f in figs:
             assert plots.text_overlaps(f) == []
     allv = pd.concat(series, ignore_index=True)
+    st = pd.concat([synthetic_day(day).assign(date=day) for day in days], ignore_index=True)
     rows = [{"next_date": days[k], "jump_median_el30": [0.8, 2.5, -0.6][k % 3], "tolerance_tecu": 1.8,
+             "stec_jump_median": [0.9, 2.8, -0.7][k % 3],
              "status": "OK" if k % 3 != 1 else "CHECK"} for k in range(1, 7)]
     for f in (plots.plot_overlay(allv, station, settings, None, return_fig=True),
               plots.plot_heatmap(allv, station, settings, None, return_fig=True),
-              plots.plot_continuity(allv, rows, station, settings, None, return_fig=True)):
+              plots.plot_continuity(allv, rows, station, settings, None, return_fig=True),
+              plots.plot_stec_overlay(st, station, settings, None, return_fig=True),
+              plots.plot_stec_continuity(st, rows, station, settings, None, return_fig=True)):
         assert plots.text_overlaps(f) == []
 
 

@@ -31,3 +31,14 @@ def test_read_ionex_and_station_series(tmp_path):
     v = gim.station_series(p, 23.36, 86.34, t)
     assert np.allclose(v, 25.0)
     assert gim.local_files_for("2022-12-25", tmp_path) == [p]
+
+
+def test_station_maps_returns_only_map_epochs(tmp_path):
+    p = tmp_path / "COD0OPSFIN_20223590000_01D_01H_GIM.INX.gz"
+    _write_ionex(p, 25.0)
+    ep, _, _, _ = gim.read_ionex(p)
+    for method in ("bilinear", "nearest"):
+        t, v, info = gim.station_maps(p, 23.36, 86.34, ep[0], ep[-1], method=method)
+        assert np.array_equal(t, ep)                  # one value per published map, none in between
+        assert np.allclose(v, 25.0)
+        assert info["method"] == method
