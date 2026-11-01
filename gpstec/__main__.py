@@ -2,6 +2,7 @@
 
   gpstec init                       write a station.toml template to edit
   gpstec run -c station.toml -o results FILES...
+  gpstec events results [--flares flares.csv] [--dst kyoto]   flare and storm signatures
   gpstec install-convbin            build RTKLIB convbin (needed for .GPS input)
   gpstec --version
 """
@@ -80,12 +81,38 @@ def main(argv=None):
     r.add_argument("--elev", type=float, help="elevation cut for VTEC output (default 50)")
     r.add_argument("--rx-bias", help="receiver bias: lsq, minstd, gim or a number in TECU")
     r.add_argument("--no-cmn", action="store_true", help="skip writing the large .Cmn-style file")
+    e = sub.add_parser("events", help="solar flare and geomagnetic storm signatures in the output of `run`")
+    e.add_argument("results", help="output folder written by `gpstec run -o`")
+    e.add_argument("-c", "--config", help="station.toml (optional; the station is read from the .Cmn files)")
+    e.add_argument("--flares", help="CSV of flares: class,start,peak,end (UTC)")
+    e.add_argument("--dst", help="'kyoto' to download hourly Dst from WDC Kyoto, or a Dst file "
+                                 "(Kyoto WDC format, saved Kyoto monthly page, IAGA-2002 or time,dst CSV)")
+    e.add_argument("--quiet-days", help="comma-separated quiet days YYYY-MM-DD for the reference "
+                                        "(default: days with Dst >= --quiet-dst all day)")
+    e.add_argument("--quiet-dst", type=float, default=-30.0, help="quiet-day Dst threshold in nT (default -30)")
+    e.add_argument("--window", type=int, default=7, help="use quiet days within +-N days (default 7)")
+    e.add_argument("--elev", type=float, default=30.0,
+                   help="elevation cut for the flare analysis (default 30; the storm part uses the VTEC from `run`)")
+    e.add_argument("-o", "--out", help="output folder (default RESULTS/events)")
     a = ap.parse_args(argv)
 
     if a.cmd == "init":
         return _init(a.path, a.force)
     if a.cmd == "install-convbin":
         return _install_convbin(a.dest)
+
+    if a.cmd == "events":
+        from . import config, events
+        if a.config:
+            station, settings = config.load(a.config)
+        else:
+            station, settings = None, config.Settings()
+        el = a.elev
+        q = [d.strip() for d in a.quiet_days.split(",")] if a.quiet_days else None
+        events.run(a.results, flares_csv=a.flares, dst=a.dst, quiet_days=q, quiet_dst=a.quiet_dst,
+                   window_days=a.window, el_min=el, station=station,
+                   out_dir=a.out, settings=settings)
+        return 0
 
     from . import config, pipeline          # heavy imports only when processing
     print(f"gpstec {__version__}  ·  {__copyright__}")

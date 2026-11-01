@@ -8,6 +8,7 @@ the data area, and each figure is written in all formats listed in
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import matplotlib
 
 matplotlib.use("Agg")
@@ -594,6 +595,198 @@ def plot_stec_overlay(stec, station, settings, path, return_fig=False):
         ax.set_ylabel("Slant TEC (TECU)", color=INK)
         _title(ax, settings, f"{station.name.upper()}   {days[0]} to {days[-1]}   Slant TEC, elevation ≥ {el:g}°")
         _legend(fig, handles, ncol=1, loc="outside right upper")
+    if return_fig:
+        return fig
+    return save(fig, path, settings)
+
+
+# ───────────────────────────── flares and storms ─────────────────────────────
+def _flare_shade(ax, row, peak):
+    s = (row["start"] - peak).total_seconds() / 60
+    e = (row["end"] - peak).total_seconds() / 60
+    ax.axvspan(s, e, color="#fde7c2", lw=0, zorder=0)
+    ax.axvline(0, color=ORANGE, lw=0.9, zorder=1)
+
+
+def plot_flare(tracks, stack, row, name, el_min, settings, path, return_fig=False):
+    """One flare: VTEC of each satellite, VTEC minus its pre-flare trend, and the rate of TEC,
+    with the median over satellites, against minutes from the X-ray peak."""
+    peak = pd.Timestamp(row["peak"])
+    fig = _fig(settings, 0.95)
+    with plt.rc_context(RC):
+        axs = fig.subplots(3, 1, sharex=True, gridspec_kw={"height_ratios": [1.2, 1.3, 1]})
+        prns = sorted(tracks["prn"].unique())
+        cols = {p: SERIES[k % len(SERIES)] for k, p in enumerate(prns)}
+        for ax in axs:
+            _style(ax)
+            _flare_shade(ax, row, peak)
+        for _, g in tracks.groupby("pass"):
+            c = cols[g["prn"].iloc[0]]
+            axs[0].plot(g["min_from_peak"], g["vtec"], color=c, lw=0.9)
+            axs[1].plot(g["min_from_peak"], g["dvtec"], color=c, lw=0.6, alpha=0.55)
+            axs[2].plot(g["min_from_peak"], g["rot"], color=c, lw=0.5, alpha=0.35)
+        m = stack["min_from_peak"]
+        many = stack["n_sats"] >= 2
+        axs[1].fill_between(m, stack["dvtec_q1"].where(many), stack["dvtec_q3"].where(many),
+                            color=BLUE_LIGHT, lw=0, alpha=0.7, zorder=2)
+        axs[1].plot(m, stack["dvtec"].where(many), color=INK, lw=1.6, zorder=3)
+        p99 = row.get("null_p99_tecu", np.nan)
+        if np.isfinite(p99):
+            axs[1].axhline(p99, color=RED, lw=0.8, ls=(0, (3, 2)), zorder=2)
+        axs[1].axhline(0, color=INK2, lw=0.6)
+        axs[2].plot(m, stack["rot"].where(many), color=INK, lw=1.4)
+        axs[2].axhline(0, color=INK2, lw=0.6)
+        lim = np.nanpercentile(np.abs(tracks["rot"]), 99) if tracks["rot"].notna().any() else 1
+        axs[2].set_ylim(-1.2 * lim, 1.2 * lim)
+        axs[0].set_ylabel("VTEC (TECU)", color=INK)
+        axs[1].set_ylabel("VTEC minus\npre-flare trend (TECU)", color=INK)
+        axs[2].set_ylabel("Rate of TEC\n(TECU/min)", color=INK)
+        axs[2].set_xlim(-90, 90)
+        axs[2].set_xlabel(f"Minutes from X-ray peak ({peak:%Y-%m-%d %H:%M} UT)", color=INK)
+        ticks = np.arange(-90, 91, 30)
+        sec = axs[0].secondary_xaxis("top")
+        sec.set_xticks(ticks)
+        sec.set_xticklabels([(peak + pd.Timedelta(minutes=float(t))).strftime("%H:%M") for t in ticks])
+        sec.tick_params(colors=INK2, labelsize=7.5)
+        for ax in axs:
+            ax.set_xticks(ticks)
+        lst = row["local_solar_time_h"]
+        exc = row.get("excess_tecu", np.nan)
+        if np.isfinite(exc) and "p_value" in row:
+            verdict = (f"rise {exc:+.2f} TECU vs ordinary times {row['null_median_tecu']:+.2f} ± "
+                       f"{row['null_robust_std_tecu']:.2f}, p = {row['p_value']:.3f} → "
+                       + ("detected" if row["detected"] else "not detected"))
+        else:
+            verdict = row.get("note", "")
+        _title(axs[0], settings,
+               f"{name.upper()}   {row['class']} flare, {peak:%d %b %Y}   solar zenith {row['solar_zenith_deg']:.0f}°, "
+               f"local solar time {int(lst):02d}:{int(lst % 1 * 60):02d}\n{verdict}")
+        handles = [Line2D([], [], color=SERIES[0], lw=0.9,
+                          label=f"Each satellite, elevation ≥ {el_min:g}° (30-s means of 1-s data)"),
+                   Line2D([], [], color=INK, lw=1.6, label="Median over satellites"),
+                   matplotlib.patches.Patch(color=BLUE_LIGHT, label="Interquartile range"),
+                   Line2D([], [], color=RED, lw=0.8, ls=(0, (3, 2)), label="99th percentile at ordinary times"),
+                   matplotlib.patches.Patch(color="#fde7c2", label="X-ray flare, start to end"),
+                   Line2D([], [], color=ORANGE, lw=0.9, label="X-ray peak")]
+        _legend(fig, handles, ncol=2)
+        fig.align_ylabels(axs)
+    if return_fig:
+        return fig
+    return save(fig, path, settings)
+
+
+def plot_flare_overview(stacks, nulls, name, el_min, settings, path, return_fig=False):
+    """Every sunlit flare's TEC rise next to the same quantity measured at ordinary times."""
+    n = len(stacks)
+    fig = _fig(settings, 0.16 + 0.075 * n)
+    with plt.rc_context(RC):
+        ax = fig.add_subplot()
+        _style(ax)
+        ax.grid(False, axis="y")
+        labels = []
+        for k, ((row, _), null) in enumerate(zip(stacks, nulls)):
+            y = n - 1 - k
+            if null.size:
+                q = np.quantile(null, [0.01, 0.25, 0.5, 0.75, 0.99])
+                ax.plot([q[0], q[4]], [y, y], color=INK2, lw=0.9, zorder=2)
+                ax.fill_betweenx([y - 0.22, y + 0.22], q[1], q[3], color=BLUE_LIGHT, lw=0, zorder=2)
+                ax.plot([q[2], q[2]], [y - 0.22, y + 0.22], color=INK2, lw=1.2, zorder=3)
+            ax.plot(row["excess_tecu"], y, "o", ms=6.5, mec=SURFACE, mew=0.8, zorder=4,
+                    color=ORANGE if row.get("detected") else INK)
+            p = pd.Timestamp(row["peak"])
+            labels.append(f"{row['class']}  {p:%d %b %H:%M} UT  (SZA {row['solar_zenith_deg']:.0f}°)")
+        ax.set_yticks(range(n))
+        ax.set_yticklabels(labels[::-1])
+        ax.set_ylim(-0.7, n - 0.3)
+        ax.axvline(0, color=INK2, lw=0.6)
+        ax.set_xlabel("VTEC rise beyond the pre-flare trend at the X-ray peak (TECU)", color=INK)
+        _title(ax, settings, f"{name.upper()}   Flare-time TEC rise against ordinary times "
+                             f"(median of satellites ≥ {el_min:g}°)")
+        handles = [Line2D([], [], marker="o", ls="none", color=ORANGE, ms=6, label="Flare, p < 0.01"),
+                   Line2D([], [], marker="o", ls="none", color=INK, ms=6, label="Flare, not significant"),
+                   matplotlib.patches.Patch(color=BLUE_LIGHT, label="Ordinary times: middle 50 %"),
+                   Line2D([], [], color=INK2, lw=0.9, label="Ordinary times: 1 to 99 %")]
+        _legend(fig, handles, ncol=2)
+    if return_fig:
+        return fig
+    return save(fig, path, settings)
+
+
+def plot_storm(dev, dst, flares, quiet, name, settings, path, t0=None, t1=None, return_fig=False):
+    """Station VTEC against the quiet-day median, the deviation (station and CODE map), and Dst."""
+    dev = dev.sort_values("time")
+    if t0 is not None:
+        dev = dev[(dev["time"] >= t0) & (dev["time"] < t1)]
+    tt = dev["time"]
+    have_dst = dst is not None and len(dst)
+    n = 3 if have_dst else 2
+    fig = _fig(settings, 0.80 if have_dst else 0.6)
+    with plt.rc_context(RC):
+        axs = fig.subplots(n, 1, sharex=True, gridspec_kw={"height_ratios": [1.3, 1.1, 0.8][:n]})
+        for ax in axs:
+            _style(ax)
+        # day boundaries, with gaps where a day is missing
+        brk = dev["time"].diff() > pd.Timedelta(minutes=5)
+        grp = brk.cumsum()
+
+        def line(ax, y, **kw):
+            for _, g in dev.assign(_y=y).groupby(grp):
+                ax.plot(g["time"], g["_y"], **kw)
+                kw.pop("label", None)
+
+        for _, g in dev.groupby(grp):
+            axs[0].fill_between(g["time"], g["lower_bound"], g["upper_bound"], color=BLUE_LIGHT, lw=0, alpha=0.8)
+        line(axs[0], dev["quiet_median"], color=INK2, lw=0.9, ls=(0, (4, 2)))
+        line(axs[0], dev["vtec"], color=BLUE, lw=1.2)
+        axs[0].set_ylim(bottom=0)
+        axs[0].set_ylabel("VTEC (TECU)", color=INK)
+        pos = dev["dvtec"].where(dev["vtec"] > dev["upper_bound"])
+        neg = dev["dvtec"].where(dev["vtec"] < dev["lower_bound"])
+        axs[1].axhline(0, color=INK2, lw=0.6)
+        line(axs[1], dev["dvtec"], color=BLUE, lw=0.9)
+        for _, g in dev.assign(p=pos, q=neg).groupby(grp):
+            axs[1].fill_between(g["time"], 0, g["p"].fillna(0), color=ORANGE, lw=0, alpha=0.6)
+            axs[1].fill_between(g["time"], 0, g["q"].fillna(0), color="#6250d6", lw=0, alpha=0.5)
+        have_gim = "gim_dvtec" in dev and dev["gim_dvtec"].notna().any()
+        if have_gim:
+            g = dev.dropna(subset=["gim_dvtec"])
+            axs[1].plot(g["time"], g["gim_dvtec"], ls="none", marker="o", ms=2.2, color=INK2)
+        axs[1].set_ylabel("ΔVTEC from quiet\nmedian (TECU)", color=INK)
+        if have_dst:
+            d = dst[(dst["time"] >= tt.min() - pd.Timedelta(hours=1)) & (dst["time"] <= tt.max() + pd.Timedelta(hours=1))]
+            axs[2].plot(d["time"], d["dst"], color=INK, lw=1.0, drawstyle="steps-mid")
+            axs[2].axhline(0, color=INK2, lw=0.6)
+            axs[2].axhline(-50, color=RED, lw=0.6, ls=(0, (3, 2)))
+            axs[2].set_ylabel("Dst (nT)", color=INK)
+        if flares is not None and len(flares):
+            f = flares[(flares["peak"] >= tt.min()) & (flares["peak"] <= tt.max())]
+            for ax in axs:
+                for p in f["peak"]:
+                    ax.axvline(p, color=ORANGE, lw=0.7, ls=(0, (1, 1.5)), zorder=1)
+        days = pd.date_range(tt.min().normalize(), tt.max().normalize() + pd.Timedelta(days=1), freq="D")
+        step = max(1, int(np.ceil(len(days) / 12)))
+        axs[-1].set_xticks(days[::step])
+        axs[-1].set_xticklabels([d.strftime("%m-%d") for d in days[::step]])
+        axs[-1].set_xticks(days, minor=True)
+        axs[-1].set_xlim(tt.min().normalize(), tt.max().normalize() + pd.Timedelta(days=1))
+        axs[-1].set_xlabel("Date (UT)", color=INK)
+        nq = int(dev["n_quiet_days"].median())
+        _title(axs[0], settings, f"{name.upper()}   Storm-time VTEC against quiet days "
+                                 f"(median of {nq} nearest quiet days at the same UT)")
+        handles = [Line2D([], [], color=BLUE, lw=1.2, label="Station VTEC (gradient-corrected fit)"),
+                   Line2D([], [], color=INK2, lw=0.9, ls=(0, (4, 2)), label="Quiet-day median"),
+                   matplotlib.patches.Patch(color=BLUE_LIGHT, label="Quiet bounds: median ± 1.5 × IQR"),
+                   matplotlib.patches.Patch(color=ORANGE, alpha=0.6, label="Above upper bound"),
+                   matplotlib.patches.Patch(color="#6250d6", alpha=0.5, label="Below lower bound")]
+        if have_gim:
+            handles.append(Line2D([], [], ls="none", marker="o", ms=3, color=INK2,
+                                  label="CODE map, same method (hourly maps)"))
+        if flares is not None and len(flares):
+            handles.append(Line2D([], [], color=ORANGE, lw=0.7, ls=(0, (1, 1.5)), label="Flare X-ray peak"))
+        if have_dst:
+            handles.append(Line2D([], [], color=INK, lw=1.0, label="Dst, WDC Kyoto (hourly)"))
+        _legend(fig, handles, ncol=2)
+        fig.align_ylabels(axs)
     if return_fig:
         return fig
     return save(fig, path, settings)
