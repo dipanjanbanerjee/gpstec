@@ -3,7 +3,7 @@
 ## 1.2.0 (2026-11-01)
 
 - New command `gpstec events RESULTS`, which finds solar flare and geomagnetic storm signatures in the output of `gpstec run` without reprocessing.
-- Flares: uses the 1-s TEC of every satellite. For each flare it reports the TEC rise beyond the pre-flare trend, compared with the same quantity at ordinary times (empirical p-value). One figure per flare, plus an overview and a CSV summary. Flares with the station in darkness are skipped.
+- Flares: uses the 1-s TEC of every satellite. For each flare it reports the TEC rise beyond the pre-flare trend, compared with the same quantity at ordinary times (empirical p-value). One figure per flare, plus an overview and a CSV summary. Flares with the station in darkness are skipped. The p-values of all tested flares are combined (Fisher and Stouffer).
 - Storms: VTEC compared minute by minute with the median of nearby quiet days (bounds median ± 1.5 IQR), as ΔVTEC in TECU and %. The CODE map is checked the same way. Dst is downloaded from WDC Kyoto (`--dst kyoto`) or read from a file.
 - `examples/flares_2025-11.csv`: M5+ flares from 2 Nov to 6 Dec 2025.
 

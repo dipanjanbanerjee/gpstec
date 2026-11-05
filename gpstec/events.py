@@ -326,6 +326,21 @@ def flare_statistics(excess, n_pass, null, per_pass=()):
     out["detected"] = bool(out["p_value"] < 0.01)
     return out
 
+def combined_flare_test(rows):
+    """Combine the p-values of every tested flare (Fisher's and Stouffer's methods).
+
+    Each flare's p-value comes from its own day and UT, so they are taken as independent.
+    """
+    from scipy import stats
+    p = np.array([r["p_value"] for r in rows if np.isfinite(r.get("p_value", np.nan))], float)
+    if p.size < 2:
+        return {}
+    return {"n_flares": int(p.size),
+            "fisher_p": float(stats.combine_pvalues(p, method="fisher")[1]),
+            "stouffer_p": float(stats.combine_pvalues(p, method="stouffer")[1]),
+            "flares": " ".join(str(r["class"]) for r in rows if np.isfinite(r.get("p_value", np.nan)))}
+
+
 # ─────────────────────────── storms ───────────────────────────
 
 def storm_deviation(allv, quiet_days, window_days=7, min_quiet=5, col="vtec_smooth", gim_col="vtec_gim"):
@@ -535,9 +550,15 @@ def run(results, flares_csv=None, dst=None, quiet_days=None, quiet_dst=-30.0, wi
                 f"± {row.get('null_robust_std_tecu', np.nan):.2f}  z {row.get('z_score', np.nan):+.1f}  "
                 f"p {row.get('p_value', np.nan):.3f}  -> {row['note']}")
         pd.DataFrame(summ).to_csv(out / f"{name}_flare_summary.csv", index=False)
+        comb = combined_flare_test(summ)
+        if comb:
+            pd.DataFrame([comb]).to_csv(out / f"{name}_flares_combined.csv", index=False)
+            log(f"  all {comb['n_flares']} sunlit flares together: Fisher p = {comb['fisher_p']:.2g}, "
+                f"Stouffer p = {comb['stouffer_p']:.2g}")
         if stacks:
             try:
-                plots.plot_flare_overview(stacks, nulls, name, el_min, settings, out / f"{name}_flares_overview.png")
+                plots.plot_flare_overview(stacks, nulls, name, el_min, settings, out / f"{name}_flares_overview.png",
+                                          combined=comb)
             except Exception as e:
                 log(f"  flare overview plot skipped ({type(e).__name__}: {e})")
     log(f"  results in {out}")

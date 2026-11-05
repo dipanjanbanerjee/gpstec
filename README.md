@@ -115,7 +115,9 @@ For multi-day runs, `results/` also gets:
 - the same rise is measured at ordinary times: every 5 min within ±1.5 h of the same UT on every day, at least 2 h from any listed flare;
 - p = share of ordinary times with an equal or larger rise. p < 0.01 counts as detected. Flares with the station in darkness are skipped.
 
-Outputs: one figure per flare (VTEC, VTEC minus the pre-flare trend, and rate of TEC for each satellite and the median), `STAT_flares_overview.png`, and `STAT_flare_summary.csv`.
+The p-values of all tested flares are also combined with Fisher's and Stouffer's methods (`STAT_flares_combined.csv`, and in the overview title).
+
+Outputs: one figure per flare (VTEC, VTEC minus the pre-flare trend, and rate of TEC for each satellite and the median), `STAT_flares_overview.png`, `STAT_flare_summary.csv` and `STAT_flares_combined.csv`.
 
 **Storms.** For each UT minute, the station VTEC is compared with the median of the quiet days within ±7 days (`--window`). The bounds are median ± 1.5 × IQR. By default a quiet day is one whose hourly Dst stays at or above −30 nT (`--quiet-dst`); you can also list the quiet days with `--quiet-days`. The CODE map gets the same treatment as a check. Dst: `--dst kyoto` downloads it from WDC Kyoto; `--dst FILE` reads a saved Kyoto page, a WDC-format file, IAGA-2002 or a `time,dst` CSV.
 

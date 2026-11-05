@@ -675,7 +675,7 @@ def plot_flare(tracks, stack, row, name, el_min, settings, path, return_fig=Fals
     return save(fig, path, settings)
 
 
-def plot_flare_overview(stacks, nulls, name, el_min, settings, path, return_fig=False):
+def plot_flare_overview(stacks, nulls, name, el_min, settings, path, return_fig=False, combined=None):
     """Every sunlit flare's TEC rise next to the same quantity measured at ordinary times."""
     n = len(stacks)
     fig = _fig(settings, 0.16 + 0.075 * n)
@@ -700,8 +700,11 @@ def plot_flare_overview(stacks, nulls, name, el_min, settings, path, return_fig=
         ax.set_ylim(-0.7, n - 0.3)
         ax.axvline(0, color=INK2, lw=0.6)
         ax.set_xlabel("VTEC rise beyond the pre-flare trend at the X-ray peak (TECU)", color=INK)
-        _title(ax, settings, f"{name.upper()}   Flare-time TEC rise against ordinary times "
-                             f"(median of satellites ≥ {el_min:g}°)")
+        text = (f"{name.upper()}   Flare-time TEC rise against ordinary times "
+                f"(median of satellites ≥ {el_min:g}°)")
+        if combined:
+            text += f"\nAll {combined['n_flares']} sunlit flares combined (Fisher): p = {combined['fisher_p']:.2g}"
+        _title(ax, settings, text)
         handles = [Line2D([], [], marker="o", ls="none", color=ORANGE, ms=6, label="Flare, p < 0.01"),
                    Line2D([], [], marker="o", ls="none", color=INK, ms=6, label="Flare, not significant"),
                    matplotlib.patches.Patch(color=BLUE_LIGHT, label="Ordinary times: middle 50 %"),

@@ -78,6 +78,15 @@ def test_flare_detected_and_null_quiet():
     assert not events.flare_statistics(exc0, n0, null0, per0)["detected"]
 
 
+def test_combined_flare_test():
+    rows = [{"class": "A", "p_value": 0.0404}, {"class": "B", "p_value": 0.2146}, {"class": "C", "p_value": 0.0344},
+            {"class": "D", "p_value": 0.0464}, {"class": "E", "p_value": 0.001}, {"class": "F", "p_value": 0.571},
+            {"class": "G", "p_value": 0.2582}, {"class": "H", "p_value": 0.2437}, {"class": "night"}]
+    c = events.combined_flare_test(rows)
+    assert c["n_flares"] == 8 and 2e-4 < c["fisher_p"] < 4e-4
+    assert events.combined_flare_test(rows[:1]) == {}
+
+
 def test_storm_deviation_finds_depletion():
     rows = []
     for k in range(15):
@@ -128,6 +137,7 @@ def test_events_end_to_end(tmp_path):
     assert bool(summ.loc["X5.1", "detected"]) and "darkness" in summ.loc["X1.0", "note"]
     assert (out / "test_flare_2025-11-11_0730_X5.1.png").exists()
     assert (out / "test_flares_overview.png").exists()
+    assert not (out / "test_flares_combined.csv").exists()          # one sunlit flare: nothing to combine
     assert (out / "test_storm_dvtec.png").exists()
     tr = pd.read_csv(out / "test_flare_2025-11-11_0730_X5.1_satellites.csv", parse_dates=["time"])
     st = pd.read_csv(out / "test_flare_2025-11-11_0730_X5.1_median.csv")
