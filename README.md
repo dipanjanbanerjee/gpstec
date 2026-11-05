@@ -41,6 +41,7 @@ On Ubuntu/Debian, `sudo apt install git build-essential` provides the build tool
 gpstec run -c station.toml -o results  /data/2242_*.GPS        # a week of receiver files
 gpstec run -c station.toml -o results  skbu3590.22o            # RINEX (.22n next to it)
 gpstec run -c station.toml -o results  skbu3590.22o --elev 40  # another elevation cut-off
+gpstec events results --flares flares.csv --dst kyoto           # flare and storm signatures
 gpstec --version
 ```
 
@@ -104,6 +105,24 @@ For multi-day runs, `results/` also gets:
 - STEC: an overlay of all days and a continuity figure with the slant-TEC jump at each midnight;
 - `calibration_summary.csv` and `midnight_continuity.csv`.
 
+## Flares and storms
+
+`gpstec events results` reads what `gpstec run` wrote; nothing is reprocessed.
+
+**Flares.** The daily VTEC curve has a knot every hour, so a flare (a TEC rise within minutes) cannot show in it. `events` uses the 1-s TEC of every satellite from the `.Cmn` files. For each flare in `--flares` (CSV `class,start,peak,end`, UTC; see `examples/flares_2025-11.csv`):
+- each satellite pass above 30° (`--elev`) is averaged to 30 s;
+- a straight line is fitted to the 10 min before the flare start and extended; the TEC rise is the VTEC in the 2 min after the X-ray peak minus that line, as the median over satellites;
+- the same rise is measured at ordinary times: every 5 min within ±1.5 h of the same UT on every day, at least 2 h from any listed flare;
+- p = share of ordinary times with an equal or larger rise. p < 0.01 counts as detected. Flares with the station in darkness are skipped.
+
+The p-values of all tested flares are also combined with Fisher's and Stouffer's methods (`STAT_flares_combined.csv`, and in the overview title).
+
+Outputs: one figure per flare (VTEC, VTEC minus the pre-flare trend, and rate of TEC for each satellite and the median), `STAT_flares_overview.png`, `STAT_flare_summary.csv` and `STAT_flares_combined.csv`.
+
+**Storms.** For each UT minute, the station VTEC is compared with the median of the quiet days within ±7 days (`--window`). The bounds are median ± 1.5 × IQR. By default a quiet day is one whose hourly Dst stays at or above −30 nT (`--quiet-dst`); you can also list the quiet days with `--quiet-days`. The CODE map gets the same treatment as a check. Dst: `--dst kyoto` downloads it from WDC Kyoto; `--dst FILE` reads a saved Kyoto page, a WDC-format file, IAGA-2002 or a `time,dst` CSV.
+
+Outputs: `STAT_storm_dvtec.png` (VTEC with quiet bounds, ΔVTEC, Dst), a close-up around the Dst minimum, `STAT_storm_dvtec.csv` (every minute) and `STAT_storm_daily.csv` (one line per day).
+
 ## Figures
 
 The figures are made for papers:
@@ -129,6 +148,8 @@ If you use gpstec in published work, please cite it (see [CITATION.cff](CITATION
 - Ciraolo, L., Azpilicueta, F., Brunini, C., Meza, A., & Radicella, S. M. (2007). Calibration errors on experimental slant total electron content (TEC) determined with GPS. *Journal of Geodesy*, 81, 111–120.
 - Ma, G., & Maruyama, T. (2003). Derivation of TEC and estimation of instrumental biases from GEONET in Japan. *Annales Geophysicae*, 21, 2083–2093.
 - Schaer, S. (1999). *Mapping and predicting the Earth's ionosphere using the Global Positioning System*. PhD thesis, University of Bern.
+- Mendillo, M., et al. (1974). Behavior of the ionospheric F region during the great solar flare of August 7, 1972. *Journal of Geophysical Research*, 79, 665–672.
+- Zhang, D. H., & Xiao, Z. (2005). Study of ionospheric response to the 4B flare on 28 October 2003 using International GPS Service network data. *Journal of Geophysical Research*, 110, A03307.
 - Seemala, G. K., & Valladares, C. E. (2011). Statistics of total electron content depletions observed over the South American continent for the year 2008. *Radio Science*, 46, RS5019.
 
 ## Author and license
